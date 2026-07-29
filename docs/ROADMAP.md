@@ -5,7 +5,7 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked.
 
 ---
 
-## Phase 0 — Bootstrap  `[ ]`  (`phase0-bootstrap`)
+## Phase 0 — Bootstrap  `[x]`  (`phase0-bootstrap`)
 Init monorepo; set **local** git identity (`Tejas-67` / `tejasjha54@gmail.com`) and disable the
 work signing key; `.gitignore` / `README` / `LICENSE`; create the **Tejas-67** GitHub repo and
 first push over SSH; `docker-compose` with Postgres + RabbitMQ + Prometheus.
