@@ -1,0 +1,24 @@
+# Prometheus scrape configuration for TaskFloww (local dev).
+#
+# Phase 0: Prometheus scrapes only itself. The orchestrator and worker expose
+# /metrics in Phase 5 — uncomment the jobs below once those endpoints exist.
+# `host.docker.internal` targets processes running on the host (e.g. the
+# orchestrator started via `go run`) from inside the Prometheus container.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # --- enabled in Phase 5 (observability) ---
+  # - job_name: orchestrator
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8080"]
+  #
+  # - job_name: worker
+  #   static_configs:
+  #     - targets: ["host.docker.internal:9100"]

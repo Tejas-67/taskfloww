@@ -1,0 +1,76 @@
+# TaskFloww — plug-and-play configuration (PREVIEW).
+#
+# This single file drives BOTH the Go orchestrator and the Python workers. The
+# goal: onboard a new task without editing engine code — just add a function and
+# map it here.
+#
+# NOTE: This is a Phase 0 preview to illustrate intent. The schema is formalized
+# and validated (Go: koanf, Python: pydantic-settings) in Phase 2. Any ${VAR}
+# value may be overridden by an environment variable.
+
+app:
+  name: taskfloww
+  environment: development       # development | staging | production
+
+logging:
+  level: info                    # debug | info | warn | error
+  format: json                   # structured JSON logs (observability-first)
+
+# --- PostgreSQL: the source of truth (state machine, scheduler, leases) ---
+database:
+  uri: ${DATABASE_URI:-postgres://taskfloww:taskfloww@localhost:5432/taskfloww?sslmode=disable}
+  max_open_conns: 20
+  max_idle_conns: 10
+
+# --- RabbitMQ: transport for ready work + native DLX for the DLQ ---
+broker:
+  uri: ${BROKER_URI:-amqp://taskfloww:taskfloww@localhost:5672/}
+  prefetch: 32                   # per-worker in-flight limit (backpressure)
+
+# --- Queue topology & routing keys ---
+queues:
+  default_exchange: taskfloww.direct
+  dead_letter_exchange: taskfloww.dlx
+  definitions:
+    - name: tasks.high
+      routing_key: priority.high
+      max_priority: 10
+    - name: tasks.default
+      routing_key: priority.default
+      max_priority: 10
+  dead_letter:
+    name: tasks.dlq
+    routing_key: dead
+
+# --- Default retry policy (per-task overridable at submission) ---
+retry:
+  max_retries: 5
+  backoff:
+    strategy: exponential        # exponential | fixed
+    base_seconds: 2
+    multiplier: 2.0
+    max_seconds: 300
+    jitter: true                 # avoid thundering-herd retries
+
+# --- Fault tolerance timings (see docs/PLAN.md §8) ---
+heartbeat:
+  interval_seconds: 10           # worker -> orchestrator heartbeat cadence
+  lease_ttl_seconds: 60          # must exceed interval + broker/consumer lag
+  reaper_interval_seconds: 15    # how often the reaper scans for expired leases
+
+# --- Scheduler / dispatcher tuning ---
+scheduler:
+  dispatch_batch_size: 100
+  poll_interval_ms: 500
+
+# --- Task -> Python function mappings (the plug-and-play core) ---
+# `handler` is an importable "module:function" path in the worker environment.
+tasks:
+  - name: send_email
+    handler: myapp.tasks:send_email
+    queue: tasks.default
+    max_retries: 3
+  - name: generate_report
+    handler: myapp.tasks:generate_report
+    queue: tasks.high
+    max_retries: 5

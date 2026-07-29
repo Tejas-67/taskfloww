@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "taskfloww-worker"
+version = "0.0.0"
+description = "Thin, plug-and-play Python worker SDK for the TaskFloww distributed task scheduler."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Tejas-67" }]
+keywords = ["task-queue", "scheduler", "rabbitmq", "workflow", "distributed"]
+
+# Phase 0 scaffold: no runtime dependencies yet.
+# Later phases add: pika/aio-pika (broker), pydantic-settings + pyyaml (config),
+# structlog (logging), prometheus-client (metrics).
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+taskfloww-worker = "taskfloww_worker.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["taskfloww_worker"]

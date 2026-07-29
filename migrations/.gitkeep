@@ -1,0 +1,3 @@
+# SQL schema migrations live here (added in Phase 1).
+# Tooling: goose (github.com/pressly/goose) — one timestamped .sql per change.
+# This placeholder keeps the directory tracked by git until the first migration.
