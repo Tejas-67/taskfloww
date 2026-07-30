@@ -3,7 +3,7 @@
 > A **stateless**, **config-driven** distributed **Task Scheduler & Workflow Engine**.
 > Go orchestrator · Python workers · PostgreSQL (source of truth) · RabbitMQ (transport + DLQ).
 
-[![status](https://img.shields.io/badge/status-phase%200%20bootstrap-orange)]()
+[![status](https://img.shields.io/badge/status-phase%201%20schema-orange)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)]()
 
 TaskFloww lets a developer **write a Python function, map it to a task name in a YAML file, and
@@ -15,8 +15,9 @@ Queue, and Prometheus/JSON observability — **without editing the core engine**
 
 ## Status
 
-🚧 **Phase 0 — Bootstrap.** Monorepo scaffold, local dev infra, and repo setup only.
-The scheduling engine is built in later phases — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+🚧 **Phase 1 — PostgreSQL schema & migrations.** The database (source of truth) is designed and
+migratable via goose. The scheduling engine (API, dispatcher, consumer, reaper) is built in later
+phases — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -48,10 +49,10 @@ taskfloww/
 │   └── cmd/orchestrator/   # main entrypoint
 ├── worker/           # Python — thin plug-and-play worker SDK + example tasks
 │   └── taskfloww_worker/
-├── migrations/       # SQL schema migrations (Phase 1)
+├── migrations/       # SQL schema migrations — goose (Phase 1)
 ├── config/           # plug-and-play example config (config.example.yaml)
 ├── deploy/           # docker-compose (Postgres + RabbitMQ + Prometheus), prometheus/
-└── docs/             # PLAN, DECISIONS, ROADMAP, RESUME
+└── docs/             # PLAN, DECISIONS, ROADMAP, RESUME, SCHEMA
 ```
 
 ## Quickstart (local infra)
@@ -72,6 +73,19 @@ docker compose up -d          # or: make -C .. up
 | Prometheus | http://localhost:9090 | metrics (targets wired in later phases) |
 
 Tear down with `docker compose down` (add `-v` to also drop data volumes).
+
+## Database migrations
+
+Once Postgres is up, apply the schema with [goose](https://github.com/pressly/goose):
+
+```bash
+go install github.com/pressly/goose/v3/cmd/goose@latest   # one-time
+export DATABASE_URI="postgres://taskfloww:taskfloww@localhost:5432/taskfloww?sslmode=disable"
+make migrate-up          # apply · make migrate-status · make migrate-down
+```
+
+Schema design, ERD, and indexing strategy: [`docs/SCHEMA.md`](docs/SCHEMA.md).
+Migration authoring guide: [`migrations/README.md`](migrations/README.md).
 
 ## Building the components
 

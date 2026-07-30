@@ -9,9 +9,12 @@ _Last updated: 2026-07-29 (planning session)._
 
 ## TL;DR
 
-We finished **discovery + planning** and shipped **Phase 0 (bootstrap)**. All four core
-architecture decisions are locked (A, B, C, D). The monorepo is scaffolded, builds/runs, and is
-pushed to GitHub. Next action = **Phase 1 (Postgres schema & migrations)**.
+We finished **discovery + planning** and shipped **Phase 0 (bootstrap)** and **Phase 1
+(PostgreSQL schema & migrations)**. All architecture decisions are locked. The schema is designed,
+migratable via goose, and validated up/down against a real Postgres. Next action = **Phase 2
+(plug-and-play config)** or **Phase 3a (submission API)**.
+
+> ⚠️ Phase 1 is implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -27,6 +30,11 @@ pushed to GitHub. Next action = **Phase 1 (Postgres schema & migrations)**.
 - ✅ Decisions **A, B, C, D** all locked (see DECISIONS.md).
 - ✅ **Phase 0 shipped** — monorepo scaffold builds (`go build` ✅, worker runs ✅), infra
   compose + Makefile + docs, pushed to `github.com/Tejas-67/taskfloww` (`main`).
+- ✅ **Phase 1 implemented (uncommitted)** — 7 goose migrations (`tasks`, `schedules`,
+  `task_executions`, `outbox`, `workers`, `dead_letters` + enums/triggers), Go domain models in
+  `orchestrator/internal/domain` (+ tests), ERD in `docs/SCHEMA.md`, `migrations/README.md`,
+  Makefile `migrate-*` targets. Validated `up`→v7 and `reset`→v0 clean against a throwaway
+  Postgres 16; partial indexes/constraints/trigger + dispatcher EXPLAIN all confirmed.
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -37,19 +45,21 @@ pushed to GitHub. Next action = **Phase 1 (Postgres schema & migrations)**.
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-Start **Phase 1 — Postgres schema & migrations** (goose). No blocking questions remain.
+**Phase 1 is done** (pending your manual commit). Next: **Phase 2 — plug-and-play config**
+(YAML loader for Go `koanf` + Python `pydantic-settings`) or **Phase 3a — submission API**.
 
 ---
 
 ## The immediate next step
 
-> Execute **Phase 1 — Postgres schema & migrations** (see ROADMAP.md):
-> DDL for `tasks`, `task_executions` (idempotency ledger), `outbox`, `workers`, `schedules`;
-> partial indexes tuned for state updates + due-scan; wire `goose` migrations.
+> Execute **Phase 2 — plug-and-play config** or **Phase 3a — submission API** (see ROADMAP.md).
+> Phase 2: one YAML schema driving Go (`koanf`) + Python (`pydantic-settings`) — broker/DB DSNs,
+> queue/routing defs, retry policy, heartbeat/timeout, and the task→function map.
 
-Local dev infra is already defined in `deploy/docker-compose.yml`. **Docker is not installed** on
-this machine — install Docker Desktop (or `colima` + `docker` via brew) to run
-`make up` before exercising Phase 1 migrations against a live Postgres.
+**Tooling installed this session:** Go 1.26.5, `goose` (`~/go/bin`), PostgreSQL 16
+(`/opt/homebrew/opt/postgresql@16`, keg-only). **Docker is still not installed** — install Docker
+Desktop (or `colima`) to run `make up`; Phase 1 was validated using a throwaway local Postgres
+cluster instead.
 
 ---
 
@@ -60,6 +70,7 @@ this machine — install Docker Desktop (or `colima` + `docker` via brew) to run
 | Master plan (architecture, data flow, failure modes) | `docs/PLAN.md` |
 | Decision log (ADRs) | `docs/DECISIONS.md` |
 | Phased roadmap + dependency graph | `docs/ROADMAP.md` |
+| DB schema, ERD, indexing rationale | `docs/SCHEMA.md` |
 | This resume file | `docs/RESUME.md` |
 | Live task tracking | session DB `todos` / `todo_deps` |
 | Decision record (machine-readable) | session DB `decisions` |
@@ -68,9 +79,16 @@ this machine — install Docker Desktop (or `colima` + `docker` via brew) to run
 1. Open `docs/RESUME.md` (this file), then `docs/ROADMAP.md`.
 2. Re-hydrate tracking if needed (the session DB may not carry over):
    the phase list in ROADMAP.md is the canonical backlog.
-3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 1).
+3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 2).
 
 ## Progress log
+- **2026-07-30 (Phase 1)** — Designed the schema: 7 goose migrations (enums+triggers, workers,
+  schedules, tasks, task_executions, outbox, dead_letters) with partial indexes tuned for the
+  dispatcher due-scan and reaper lease-scan, fillfactor tuning, idempotency ledger, transactional
+  outbox, and DLQ table. Added Go domain models + tests (`orchestrator/internal/domain`), ERD
+  (`docs/SCHEMA.md`), `migrations/README.md`, and Makefile `migrate-*` targets. Installed goose +
+  Postgres 16; validated `up`→v7 and `reset`→v0 clean, plus functional constraint/trigger/EXPLAIN
+  checks. **Not committed** (user commits manually).
 - **2026-07-29 (Phase 0)** — Scaffolded monorepo (orchestrator Go skeleton, worker Python SDK
   skeleton, docker-compose infra, config preview, Makefile, MIT license, .gitignore). Set local
   git identity (`Tejas-67`/`tejasjha54@gmail.com`, signing off), branch `main`, SSH remote.

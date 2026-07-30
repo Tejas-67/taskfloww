@@ -1,8 +1,12 @@
 # TaskFloww — developer convenience targets.
 COMPOSE := docker compose -f deploy/docker-compose.yml
+GOOSE ?= goose
+MIGRATIONS_DIR := migrations
+DATABASE_URI ?= postgres://taskfloww:taskfloww@localhost:5432/taskfloww?sslmode=disable
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps build run-orchestrator worker-install run-worker fmt tidy test clean
+.PHONY: help up down logs ps build run-orchestrator worker-install run-worker fmt tidy test clean \
+        migrate-up migrate-down migrate-status migrate-reset
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -19,6 +23,18 @@ logs: ## Tail infra logs
 
 ps: ## Show infra status
 	$(COMPOSE) ps
+
+migrate-up: ## Apply all pending DB migrations (goose)
+	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DATABASE_URI)" up
+
+migrate-down: ## Roll back the most recent migration
+	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DATABASE_URI)" down
+
+migrate-status: ## Show migration status
+	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DATABASE_URI)" status
+
+migrate-reset: ## Roll back ALL migrations (dev only)
+	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DATABASE_URI)" reset
 
 build: ## Build the Go orchestrator
 	cd orchestrator && go build -o bin/orchestrator ./cmd/orchestrator

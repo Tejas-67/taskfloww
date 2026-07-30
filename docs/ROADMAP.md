@@ -12,7 +12,7 @@ first push over SSH; `docker-compose` with Postgres + RabbitMQ + Prometheus.
 **Deliverable:** `docker-compose up` gives a clean Postgres + RabbitMQ + Prometheus; repo on GitHub.
 **Depends on:** —
 
-## Phase 1 — Schema & migrations  `[ ]`  (`phase1-schema`)
+## Phase 1 — Schema & migrations  `[x]`  (`phase1-schema`)
 DDL for `tasks`, `task_executions` (idempotency ledger), `outbox`, `workers`, `schedules`
 (recurring). Partial indexes tuned for state updates + due-scan. `goose` wiring.
 **Deliverable:** `migrate up/down` runs clean; ERD in docs.
