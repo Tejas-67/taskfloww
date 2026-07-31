@@ -1,12 +1,15 @@
-# TaskFloww — plug-and-play configuration (PREVIEW).
+# TaskFloww — plug-and-play configuration.
 #
 # This single file drives BOTH the Go orchestrator and the Python workers. The
 # goal: onboard a new task without editing engine code — just add a function and
 # map it here.
 #
-# NOTE: This is a Phase 0 preview to illustrate intent. The schema is formalized
-# and validated (Go: koanf, Python: pydantic-settings) in Phase 2. Any ${VAR}
-# value may be overridden by an environment variable.
+# Precedence (low → high): built-in defaults → this file → environment vars.
+#   * ${VAR:-default} interpolates an env var into any value (default if unset).
+#   * TASKFLOWW_<SECTION>__<KEY> overrides a value, e.g.
+#     TASKFLOWW_BROKER__PREFETCH=64 or TASKFLOWW_DATABASE__URI=...
+# Loaders: Go = koanf (orchestrator), Python = pydantic (worker). Invalid config
+# fails fast with a list of every problem.
 
 app:
   name: taskfloww
@@ -14,18 +17,31 @@ app:
 
 logging:
   level: info                    # debug | info | warn | error
-  format: json                   # structured JSON logs (observability-first)
+  format: json                   # json | text (JSON = observability-first)
+
+# --- Orchestrator HTTP server (health, metrics, future API) ---
+server:
+  http_addr: ":8080"
+
+# --- Prometheus metrics ---
+metrics:
+  enabled: true
+  path: /metrics
+  worker_port: 9100              # port each worker exposes /metrics on
 
 # --- PostgreSQL: the source of truth (state machine, scheduler, leases) ---
+# Orchestrator only; workers ignore this section (ADR-0002 / B1).
 database:
   uri: ${DATABASE_URI:-postgres://taskfloww:taskfloww@localhost:5432/taskfloww?sslmode=disable}
   max_open_conns: 20
   max_idle_conns: 10
+  conn_max_idle_seconds: 300
 
 # --- RabbitMQ: transport for ready work + native DLX for the DLQ ---
 broker:
   uri: ${BROKER_URI:-amqp://taskfloww:taskfloww@localhost:5672/}
   prefetch: 32                   # per-worker in-flight limit (backpressure)
+  connection_name: taskfloww
 
 # --- Queue topology & routing keys ---
 queues:

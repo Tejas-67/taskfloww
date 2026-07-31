@@ -5,7 +5,7 @@ MIGRATIONS_DIR := migrations
 DATABASE_URI ?= postgres://taskfloww:taskfloww@localhost:5432/taskfloww?sslmode=disable
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps build run-orchestrator worker-install run-worker fmt tidy test clean \
+.PHONY: help up down logs ps build run-orchestrator worker-install run-worker fmt tidy test test-worker clean \
         migrate-up migrate-down migrate-status migrate-reset
 
 help: ## Show this help
@@ -40,13 +40,13 @@ build: ## Build the Go orchestrator
 	cd orchestrator && go build -o bin/orchestrator ./cmd/orchestrator
 
 run-orchestrator: build ## Build and run the orchestrator
-	./orchestrator/bin/orchestrator
+	./orchestrator/bin/orchestrator -config config/config.example.yaml
 
 worker-install: ## Install the Python worker (editable, with dev extras)
 	cd worker && python3 -m pip install -e '.[dev]'
 
-run-worker: ## Run the Python worker
-	cd worker && python3 -m taskfloww_worker
+run-worker: ## Run the Python worker (uses worker/.venv if present)
+	PY=$$( [ -x worker/.venv/bin/python ] && echo worker/.venv/bin/python || echo python3 ); $$PY -m taskfloww_worker -c config/config.example.yaml
 
 fmt: ## Format Go code
 	cd orchestrator && go fmt ./...
@@ -56,6 +56,9 @@ tidy: ## Tidy Go modules
 
 test: ## Run Go tests
 	cd orchestrator && go test ./...
+
+test-worker: ## Run Python worker tests (uses worker/.venv if present)
+	cd worker && PY=$$( [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3 ); $$PY -m pytest -q
 
 clean: ## Remove build artifacts
 	rm -rf orchestrator/bin

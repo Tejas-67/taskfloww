@@ -12,10 +12,13 @@ license = { text = "MIT" }
 authors = [{ name = "Tejas-67" }]
 keywords = ["task-queue", "scheduler", "rabbitmq", "workflow", "distributed"]
 
-# Phase 0 scaffold: no runtime dependencies yet.
-# Later phases add: pika/aio-pika (broker), pydantic-settings + pyyaml (config),
-# structlog (logging), prometheus-client (metrics).
-dependencies = []
+# Phase 2: config loading dependencies.
+# Later phases add: pika/aio-pika (broker), structlog (logging),
+# prometheus-client (metrics).
+dependencies = [
+  "pydantic>=2",
+  "pyyaml>=6",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

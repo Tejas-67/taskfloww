@@ -3,7 +3,7 @@
 > A **stateless**, **config-driven** distributed **Task Scheduler & Workflow Engine**.
 > Go orchestrator · Python workers · PostgreSQL (source of truth) · RabbitMQ (transport + DLQ).
 
-[![status](https://img.shields.io/badge/status-phase%201%20schema-orange)]()
+[![status](https://img.shields.io/badge/status-phase%202%20config-orange)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)]()
 
 TaskFloww lets a developer **write a Python function, map it to a task name in a YAML file, and
@@ -15,9 +15,10 @@ Queue, and Prometheus/JSON observability — **without editing the core engine**
 
 ## Status
 
-🚧 **Phase 1 — PostgreSQL schema & migrations.** The database (source of truth) is designed and
-migratable via goose. The scheduling engine (API, dispatcher, consumer, reaper) is built in later
-phases — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+🚧 **Phase 2 — plug-and-play configuration.** One YAML file (with env interpolation + overrides)
+drives both the orchestrator and workers, validated fail-fast on both sides. Database (Phase 1)
+and scaffold (Phase 0) are in place. The scheduling engine (API, dispatcher, consumer, reaper) is
+built in later phases — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -87,15 +88,31 @@ make migrate-up          # apply · make migrate-status · make migrate-down
 Schema design, ERD, and indexing strategy: [`docs/SCHEMA.md`](docs/SCHEMA.md).
 Migration authoring guide: [`migrations/README.md`](migrations/README.md).
 
+## Configuration (plug-and-play)
+
+One YAML file drives **both** the orchestrator and the workers — add a task by writing a function
+and mapping it here; no engine code changes. See [`config/config.example.yaml`](config/config.example.yaml)
+and the full reference in [`docs/CONFIG.md`](docs/CONFIG.md).
+
+- **Interpolation:** `${VAR:-default}` pulls values from the environment.
+- **Overrides:** `TASKFLOWW_<SECTION>__<KEY>` (e.g. `TASKFLOWW_BROKER__PREFETCH=64`).
+- **Fail-fast:** invalid config aborts startup with a list of every problem.
+
+```bash
+# point either component at a config file (default: config/config.example.yaml)
+./orchestrator -config config/config.example.yaml           # Go
+python -m taskfloww_worker -c config/config.example.yaml    # Python
+```
+
 ## Building the components
 
 ```bash
 # Orchestrator (Go)
-cd orchestrator && go build ./... && ./orchestrator   # serves GET /healthz on :8080
+cd orchestrator && go build ./... && ./orchestrator -config ../config/config.example.yaml
 
 # Worker (Python)
 cd worker && python -m venv .venv && source .venv/bin/activate
-pip install -e . && python -m taskfloww_worker
+pip install -e '.[dev]' && python -m taskfloww_worker -c ../config/config.example.yaml
 ```
 
 ## Roadmap

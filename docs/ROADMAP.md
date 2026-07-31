@@ -18,7 +18,7 @@ DDL for `tasks`, `task_executions` (idempotency ledger), `outbox`, `workers`, `s
 **Deliverable:** `migrate up/down` runs clean; ERD in docs.
 **Depends on:** Phase 0
 
-## Phase 2 — Plug-and-play config  `[ ]`  (`phase2-config`)
+## Phase 2 — Plug-and-play config  `[x]`  (`phase2-config`)
 YAML schema + loaders/validation for Go (`koanf`) and Python (`pydantic-settings`): broker DSN,
 DB URI, queue/routing defs, retry policy, heartbeat/timeout, **task→function map**, env overrides.
 **Deliverable:** one `config.yaml` drives both sides; invalid config fails fast with clear errors.
