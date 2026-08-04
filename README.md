@@ -3,7 +3,7 @@
 > A **stateless**, **config-driven** distributed **Task Scheduler & Workflow Engine**.
 > Go orchestrator · Python workers · PostgreSQL (source of truth) · RabbitMQ (transport + DLQ).
 
-[![status](https://img.shields.io/badge/status-phase%203a%20submission%20api-orange)]()
+[![status](https://img.shields.io/badge/status-M1%20walking%20skeleton-brightgreen)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)]()
 
 TaskFloww lets a developer **write a Python function, map it to a task name in a YAML file, and
@@ -15,10 +15,11 @@ Queue, and Prometheus/JSON observability — **without editing the core engine**
 
 ## Status
 
-🚧 **Phase 3a — submission API.** The orchestrator now serves a REST API (chi) to submit
-(immediate / delayed / recurring), fetch, and cancel tasks — persisted to PostgreSQL behind a
-`SchedulerService` interface. Config (Phase 2), schema (Phase 1), and scaffold (Phase 0) are in
-place. The SKIP LOCKED dispatcher, consumer, and reaper come next — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+✅ **Milestone M1 — walking skeleton complete.** The full loop works end-to-end: submit a task →
+dispatcher claims it (`SKIP LOCKED`) → outbox → RabbitMQ → **Python worker runs your function** →
+result → orchestrator marks it `completed`. Failures retry with backoff and land in a **DLQ** when
+exhausted; workers heartbeat to renew leases and register themselves. Next up: reaper (crash
+re-queue), DLQ replay, metrics, tests, docs — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -121,10 +122,28 @@ curl -X POST localhost:8080/v1/tasks/<uuid>/cancel
 Supports `immediate` / `delayed` (`delay_seconds`|`run_at`) / `recurring` (`cron`); submissions are
 idempotent on `id`; unknown task names are rejected (only configured tasks are accepted).
 
+## Run the full loop (M1)
+
+```bash
+# 1. infra + schema
+make up && make migrate-up
+# 2. orchestrator (API + dispatcher + relay + result/heartbeat consumer)
+cd orchestrator && go run ./cmd/orchestrator -config ../config/config.example.yaml
+# 3. worker (in another shell; runs from worker/ so examples.* import)
+cd worker && python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]'
+python -m taskfloww_worker -c ../config/config.example.yaml
+# 4. submit — watch it go queued → dispatching → running → completed
+curl -X POST localhost:8080/v1/tasks -H 'Content-Type: application/json' \
+  -d '{"task_name":"send_email","payload":{"to":"a@b.com"}}'
+```
+
+Failing handlers (e.g. the bundled `flaky`/`always_fails`) retry with backoff and land in the DLQ
+(`dead_letters` + the `tasks.dlq` queue) once `max_retries` is exhausted.
+
 ## Building the components
 
 ```bash
-# Orchestrator (Go) — requires Postgres (make up && make migrate-up)
+# Orchestrator (Go) — requires Postgres + RabbitMQ (make up && make migrate-up)
 cd orchestrator && go build ./... && ./orchestrator -config ../config/config.example.yaml
 
 # Worker (Python)

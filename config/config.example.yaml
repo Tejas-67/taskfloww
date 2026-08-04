@@ -58,6 +58,13 @@ queues:
     name: tasks.dlq
     routing_key: dead
 
+# --- Control channel: worker -> orchestrator (results + heartbeats) ---
+control:
+  exchange: taskfloww.control
+  queue: taskfloww.control
+  result_routing_key: result
+  heartbeat_routing_key: heartbeat
+
 # --- Default retry policy (per-task overridable at submission) ---
 retry:
   max_retries: 5
@@ -81,12 +88,16 @@ scheduler:
 
 # --- Task -> Python function mappings (the plug-and-play core) ---
 # `handler` is an importable "module:function" path in the worker environment.
+# These point at the bundled examples (run the worker from the `worker/` dir).
 tasks:
   - name: send_email
-    handler: myapp.tasks:send_email
+    handler: examples.tasks:send_email
     queue: tasks.default
     max_retries: 3
   - name: generate_report
-    handler: myapp.tasks:generate_report
+    handler: examples.tasks:generate_report
     queue: tasks.high
     max_retries: 5
+  - name: flaky
+    handler: examples.tasks:always_fails
+    queue: tasks.default

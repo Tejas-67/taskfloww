@@ -9,13 +9,13 @@ _Last updated: 2026-07-29 (planning session)._
 
 ## TL;DR
 
-We finished **discovery + planning** and shipped **Phase 0 (bootstrap)**, **Phase 1 (schema &
-migrations)**, **Phase 2 (plug-and-play config)**, and **Phase 3a (submission API)**. All
-architecture decisions are locked. The orchestrator serves a REST API (submit immediate/delayed/
-recurring, get, cancel) persisting to Postgres behind `SchedulerService`. Next = **Phase 3b
-(dispatcher + outbox relay)**.
+We finished **discovery + planning** and shipped **Phase 0 → 4**: bootstrap, schema, config,
+submission API, dispatcher+outbox relay, **result/heartbeat consumer (3c)**, and the **Python
+worker SDK (4)**. **Milestone M1 (walking skeleton) is complete** — the full loop works end-to-end
+(submit → dispatch → worker executes → completed; failures retry→DLQ). Next = **Phase 3d (reaper:
+crash re-queue + cron firing)**, then 3e (DLQ replay), 5 (metrics), 6 (tests), 7 (docs).
 
-> ⚠️ Phase 3a is implemented and validated but **not yet committed** — the user commits manually.
+> ⚠️ Phases 3c + 4 are implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -49,6 +49,20 @@ recurring, get, cancel) persisting to Postgres behind `SchedulerService`. Next =
   + priority + max_retries; idempotent on `id`; unknown task names rejected. Tests: service (fake
   store) + api (fake service) unit tests + a `-tags=integration` store test. **Validated end-to-end**
   against a throwaway Postgres: submit/get/cancel/idempotency/404/409/400 all correct; rows persisted.
+- ✅ **Phase 3b implemented (uncommitted)** — dispatcher + outbox relay + RabbitMQ transport. New Go
+  packages: `internal/broker` (amqp091: topology = priority queues + DLX, confirmed publishes),
+  `internal/dispatcher` (claims due tasks via `FOR UPDATE SKIP LOCKED`, transition→dispatching+lease,
+  execution-ledger row + outbox row in ONE tx), `internal/relay` (drains outbox→broker, marks
+  published), `internal/message` (wire contract). Store gained `ClaimDueTasks` + `PublishOutbox`.
+- ✅ **Phase 3c + 4 implemented (uncommitted)** — the execution loop closes. Go: `internal/consumer`
+  (applies results idempotently via execution-state dedup → completed/retrying/dead+dead_letters;
+  heartbeats renew leases + upsert workers), `internal/backoff` (exp/fixed + jitter), store
+  `ApplyResult`/`RenewLeases`/`UpsertWorker`, control topology + `Consume` on the broker, message
+  `control.go`. Python worker SDK: `messages`, `registry` (imports `module:function`), `worker`
+  (pika consume + thread-pool exec + threadsafe result/ack + heartbeats + dedupe + graceful stop),
+  `examples/tasks.py`, wired `__main__`. Dep: pika. Validated **full E2E** on throwaway PG +
+  RabbitMQ 4.3.4: happy path (submit→execute→completed, result persisted, worker auto-registered)
+  AND failure path (fail→retry w/ backoff→dead + dead_letters). Store integration suite green.
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -59,30 +73,38 @@ recurring, get, cancel) persisting to Postgres behind `SchedulerService`. Next =
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-**Phase 3a is done** (pending your manual commit). Next: **Phase 3b — dispatcher + outbox relay**
-(claim due tasks via `SELECT … FOR UPDATE SKIP LOCKED`, write outbox row in the same tx, publish to
-RabbitMQ priority queues, mark dispatched). Then 3c (result/heartbeat consumer) and 3d (reaper).
+**Phases 3c + 4 done** (pending your manual commit). Next: **Phase 3d — reaper** (scan expired
+leases → re-queue crashed tasks with backoff or DLQ; scan due `schedules` → materialize recurring
+`tasks` runs; mark stale workers dead). Guard multi-instance via `SKIP LOCKED`/advisory locks.
+Then 3e (DLQ replay), 5 (Prometheus metrics), 6 (fault-tolerance test suite), 7 (docs).
 
 ---
 
 ## The immediate next step
 
-> Execute **Phase 3b — dispatcher + outbox relay** (see ROADMAP.md): a loop that claims due tasks
-> (`state IN ('queued','retrying') AND next_run_at <= now()`) via `SELECT … FOR UPDATE SKIP LOCKED`,
-> sets them `dispatching` + lease, writes an `outbox` row in the SAME tx, and a relay publishes
-> outbox rows to RabbitMQ priority queues (needs a broker — `make up`, or add a RabbitMQ test dep).
+> Execute **Phase 4 — Python worker SDK** (see ROADMAP.md): a thin Rabbit-only worker that consumes
+> from the priority queues, dedupes on `execution_id`, runs the mapped `module:function`, and
+> publishes a result message + periodic heartbeats. Pairs with **Phase 3c** (orchestrator consumer
+> that applies results and renews leases). The wire contract is `internal/message.Task` (mirror it
+> in Python).
 
 **Tooling installed this session:** Go 1.26.5, `goose` (`~/go/bin`), PostgreSQL 16
-(`/opt/homebrew/opt/postgresql@16`, keg-only), Python venv at `worker/.venv` (pydantic + pyyaml +
-pytest). **Docker is still not installed** — install Docker Desktop (or `colima`) to run `make up`.
-Phase 3a was validated against a throwaway local Postgres (initdb + goose + curl).
+(`/opt/homebrew/opt/postgresql@16`, keg-only), **RabbitMQ 4.3.4** (`/opt/homebrew/opt/rabbitmq`),
+Python venv at `worker/.venv` (pydantic + pyyaml + pytest). **Docker is still not installed** —
+install Docker Desktop (or `colima`) to run `make up`. Phases 3a/3b were validated against
+throwaway local Postgres + RabbitMQ nodes (initdb/goose/curl + rabbitmq-server).
 
-### Engine notes (Phase 3a)
-- Layering: `api` (chi) → `service` (`SchedulerService`, validation/cron) → `store` (pgx).
-  The store is the ONLY task-state writer (ADR-0002/B1).
+### Engine notes (Phase 3a/3b)
+- Layering: `api` (chi) → `service` (`SchedulerService`, validation/cron) → `store` (pgx). The
+  `dispatcher` and `relay` are background loops; `broker` owns AMQP. The store is the ONLY task-state
+  writer (ADR-0002/B1).
+- Dispatch is one tx: claim (`FOR UPDATE SKIP LOCKED`) → `dispatching` + lease + `attempt++` →
+  `task_executions` row (attempt_number) → `outbox` row. The relay publishes the outbox with
+  publisher confirms and stamps `published_at` (at-least-once publish; workers dedupe on execution_id).
+- Message routing: task's `queue` (from config mapping) → `QueueDef.routing_key` on
+  `queues.default_exchange`; AMQP priority = task priority clamped to the queue's `max_priority`.
 - Recurring submissions create a `schedules` row (a cron *definition*); firing/materialization into
   `tasks` runs is Phase 3d. Immediate/delayed create a `tasks` row directly.
-- Outbox is written at **dispatch** (Phase 3b), not submission (see SCHEMA.md refinement).
 - Store integration tests are build-tagged `integration` and need `TASKFLOWW_TEST_DB_URI`.
 
 ### Config loader notes (Phase 2)
@@ -115,6 +137,25 @@ Phase 3a was validated against a throwaway local Postgres (initdb + goose + curl
 3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 3a).
 
 ## Progress log
+- **2026-08-04 (Phase 3c + 4)** — Closed the execution loop. Go: `internal/consumer` (idempotent
+  result apply via execution-state dedup → completed/retrying/dead+dead_letters; heartbeat lease
+  renew + worker upsert), `internal/backoff` (exp/fixed+jitter), store `ApplyResult`/`RenewLeases`/
+  `UpsertWorker`, broker control topology + `Consume`, `message/control.go`, config `control`
+  section. Python worker SDK: `messages`/`registry`/`worker`/`examples/tasks.py`, wired `__main__`,
+  pika dep. Fixed 3 real bugs found by tests/E2E: worker-FK ordering (set worker_id only if the
+  worker row exists), retry off-by-one (`attempt <= max_retries`), nil `queues` on upsert; plus a
+  broker **channel-recovery** fix (a poison publish no longer wedges the relay). Full E2E (PG +
+  RabbitMQ) proved happy + failure paths; store integration + both unit suites green.
+  **Not committed** (user commits manually).
+- **2026-08-04 (Phase 3b)** — Dispatcher + outbox relay + RabbitMQ. New Go packages: `internal/broker`
+  (amqp091: topology priority queues + DLX, confirmed publishes), `internal/dispatcher` (claim due via
+  `FOR UPDATE SKIP LOCKED` → transition+lease+attempt++ → execution row + outbox row in one tx),
+  `internal/relay` (drain outbox → broker, mark published/attempts), `internal/message` (wire
+  contract). Store: `ClaimDueTasks` (aliased RETURNING to avoid ambiguous `id`) + `PublishOutbox`.
+  Wired both loops into `cmd/orchestrator` with WaitGroup shutdown. Dep: rabbitmq/amqp091-go. Tests:
+  dispatcher/relay unit (fakes) + store integration. Validated E2E on throwaway Postgres + RabbitMQ
+  4.3.4 (installed via brew): messages routed to correct priority queues with correct body/priority.
+  **Not committed** (user commits manually).
 - **2026-07-31 (Phase 3a)** — Submission API. New Go packages: `internal/store` (pgx; only
   task-state writer, sentinel errors, jsonb/enum/uuid casts), `internal/service`
   (`SchedulerService`: validate task_name against config, next_run_at for immediate/delayed, cron

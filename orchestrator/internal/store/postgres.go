@@ -64,7 +64,12 @@ const taskColumns = `id::text, idempotency_key, task_name, payload, state, execu
 	last_heartbeat_at, dispatched_at, started_at, completed_at, last_error,
 	schedule_id::text, created_at, updated_at`
 
-func scanTask(row pgx.Row) (*domain.Task, error) {
+// scannable is satisfied by both pgx.Row and pgx.Rows.
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanTask(row scannable) (*domain.Task, error) {
 	var (
 		t            domain.Task
 		payload      []byte

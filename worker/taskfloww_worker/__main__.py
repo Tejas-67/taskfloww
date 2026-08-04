@@ -1,12 +1,10 @@
 """Entrypoint for the TaskFloww worker.
 
-Phase 2: loads the plug-and-play config (path via -c/--config or
-TASKFLOWW_CONFIG), configures structured JSON logging from it, and logs a
-startup summary of the task→function mappings it would serve. Invalid config
-fails fast. The RabbitMQ consume loop, heartbeat/result publishers, and task
-registry land in Phase 4 (see ../docs/ROADMAP.md).
+Loads the plug-and-play config, imports+registers the task handlers it maps,
+and runs the consume loop. Run from a directory where your handler modules are
+importable (the CWD is added to sys.path).
 
-Run with:  python -m taskfloww_worker [-c config.yaml]
+    python -m taskfloww_worker -c config.yaml
 """
 from __future__ import annotations
 
@@ -14,11 +12,14 @@ import argparse
 import json
 import logging
 import os
+import signal
 import sys
 from datetime import datetime, timezone
 
 from taskfloww_worker import __version__
 from taskfloww_worker.config import Config, ConfigError, load_config, redact_uri
+from taskfloww_worker.registry import Registry
+from taskfloww_worker.worker import Worker
 
 
 class JsonFormatter(logging.Formatter):
@@ -54,8 +55,7 @@ def configure_logging(level: str = "info", fmt: str = "json") -> logging.Logger:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="taskfloww-worker")
     parser.add_argument(
-        "-c",
-        "--config",
+        "-c", "--config",
         default=os.environ.get("TASKFLOWW_CONFIG", "config/config.example.yaml"),
         help="path to the TaskFloww config file (or set TASKFLOWW_CONFIG)",
     )
@@ -64,8 +64,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-
-    # Bootstrap logger for pre-config errors.
     boot = configure_logging()
     try:
         cfg: Config = load_config(args.config)
@@ -74,20 +72,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     log = configure_logging(cfg.logging.level, cfg.logging.format)
+
+    # Make user handler modules importable relative to the working directory.
+    sys.path.insert(0, os.getcwd())
+    registry = Registry()
+    try:
+        registry.load_from_config(cfg)
+    except Exception as e:
+        log.error("failed to import task handlers: %s", e)
+        return 1
+
     log.info(
-        "taskfloww worker starting version=%s environment=%s broker=%s prefetch=%d "
-        "tasks=%d lease_ttl=%ds heartbeat=%ds",
-        __version__,
-        cfg.app.environment,
-        redact_uri(cfg.broker.uri),
-        cfg.broker.prefetch,
-        len(cfg.tasks),
-        cfg.heartbeat.lease_ttl_seconds,
-        cfg.heartbeat.interval_seconds,
+        "taskfloww worker starting version=%s broker=%s tasks=%s",
+        __version__, redact_uri(cfg.broker.uri), registry.names(),
     )
-    for name, handler in cfg.handler_map().items():
-        log.info("registered task mapping: %s -> %s", name, handler)
-    log.info("consume loop lands in phase 4")
+
+    worker = Worker(cfg, registry, worker_id=os.environ.get("TASKFLOWW_WORKER_ID"))
+
+    def _handle_signal(signum, _frame):
+        log.info("received signal %s, shutting down", signum)
+        worker.stop()
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
+    try:
+        worker.run()
+    except Exception as e:
+        log.error("worker crashed: %s", e)
+        return 1
     return 0
 
 

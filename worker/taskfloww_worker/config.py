@@ -96,6 +96,13 @@ class DeadLetter(_Model):
     routing_key: str = "dead"
 
 
+class Control(_Model):
+    exchange: str = "taskfloww.control"
+    queue: str = "taskfloww.control"
+    result_routing_key: str = "result"
+    heartbeat_routing_key: str = "heartbeat"
+
+
 class Queues(_Model):
     default_exchange: str = "taskfloww.direct"
     dead_letter_exchange: str = "taskfloww.dlx"
@@ -195,6 +202,7 @@ class Config(_Model):
     metrics: Metrics = Field(default_factory=Metrics)
     broker: Broker
     queues: Queues
+    control: Control = Field(default_factory=Control)
     retry: Retry = Field(default_factory=Retry)
     heartbeat: Heartbeat = Field(default_factory=Heartbeat)
     tasks: list[TaskMapping] = Field(default_factory=list)

@@ -33,7 +33,7 @@ Both loaders **fail fast**: an invalid file aborts startup and prints *every* pr
 | Section | Orchestrator (Go) | Worker (Python) |
 |---|:--:|:--:|
 | `app`, `logging`, `metrics` | ✓ | ✓ |
-| `broker`, `queues`, `retry`, `heartbeat`, `tasks` | ✓ | ✓ |
+| `broker`, `queues`, `control`, `retry`, `heartbeat`, `tasks` | ✓ | ✓ |
 | `database` | ✓ | ignored |
 | `server`, `scheduler` | ✓ | ignored |
 
@@ -69,6 +69,16 @@ queues:
     - { name: tasks.high,    routing_key: priority.high,    max_priority: 10 }
     - { name: tasks.default, routing_key: priority.default, max_priority: 10 }
   dead_letter: { name: tasks.dlq, routing_key: dead }
+```
+
+### `control` (worker → orchestrator)
+Exchange + queue carrying results and heartbeats back from workers, multiplexed by routing key.
+```yaml
+control:
+  exchange: taskfloww.control
+  queue: taskfloww.control
+  result_routing_key: result
+  heartbeat_routing_key: heartbeat
 ```
 
 ### `retry` (default policy; per-task overridable)

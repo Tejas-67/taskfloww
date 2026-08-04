@@ -30,13 +30,13 @@ in one tx. Supports immediate / delayed / recurring + priority + `max_retries`.
 **Deliverable:** `POST /tasks` persists a task and its outbox row atomically.
 **Depends on:** Phases 1, 2
 
-## Phase 3b — Dispatcher + outbox relay  `[ ]`  (`phase3b-dispatcher`)
+## Phase 3b — Dispatcher + outbox relay  `[x]`  (`phase3b-dispatcher`)
 Due-task claim via `SELECT … FOR UPDATE SKIP LOCKED`; publish to RabbitMQ priority queues;
 outbox relay for atomic publish; mark dispatched.
 **Deliverable:** queued task appears on the right RabbitMQ queue exactly once.
 **Depends on:** Phases 1, 2
 
-## Phase 3c — Result/heartbeat consumer  `[ ]`  (`phase3c-consumer`)
+## Phase 3c — Result/heartbeat consumer  `[x]`  (`phase3c-consumer`)
 Consume worker result + heartbeat messages; update state, renew `lease_expires_at`, record
 executions idempotently. **The only component that writes terminal task state.**
 **Deliverable:** completion + heartbeat messages correctly mutate state.
@@ -54,7 +54,7 @@ replay path.
 **Deliverable:** tasks past `max_retries` land in the DLQ and are inspectable/replayable.
 **Depends on:** Phase 3d
 
-## Phase 4 — Python worker SDK  `[ ]`  (`phase4-worker-sdk`)
+## Phase 4 — Python worker SDK  `[x]`  (`phase4-worker-sdk`)
 Rabbit-only worker: config load, task registry (decorator + config-path mapping), prefetch loop,
 ack/nack, idempotency guard, periodic heartbeat + result publishers, structured logging,
 graceful shutdown.

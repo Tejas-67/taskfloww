@@ -20,6 +20,7 @@ type Config struct {
 	Database  Database      `koanf:"database"`
 	Broker    Broker        `koanf:"broker"`
 	Queues    Queues        `koanf:"queues"`
+	Control   Control       `koanf:"control"`
 	Retry     Retry         `koanf:"retry"`
 	Heartbeat Heartbeat     `koanf:"heartbeat"`
 	Scheduler Scheduler     `koanf:"scheduler"`
@@ -84,6 +85,15 @@ type Queues struct {
 	DeadLetterExchange string     `koanf:"dead_letter_exchange"`
 	Definitions        []QueueDef `koanf:"definitions"`
 	DeadLetter         DeadLetter `koanf:"dead_letter"`
+}
+
+// Control is the exchange/queue for worker→orchestrator messages (results and
+// heartbeats). Both message types share one queue, multiplexed by routing key.
+type Control struct {
+	Exchange            string `koanf:"exchange"`
+	Queue               string `koanf:"queue"`
+	ResultRoutingKey    string `koanf:"result_routing_key"`
+	HeartbeatRoutingKey string `koanf:"heartbeat_routing_key"`
 }
 
 // Backoff is the retry backoff policy.
@@ -188,6 +198,10 @@ func defaults() Config {
 		},
 		Broker: Broker{Prefetch: 32, ConnectionName: "taskfloww"},
 		Queues: Queues{DefaultExchange: "taskfloww.direct", DeadLetterExchange: "taskfloww.dlx"},
+		Control: Control{
+			Exchange: "taskfloww.control", Queue: "taskfloww.control",
+			ResultRoutingKey: "result", HeartbeatRoutingKey: "heartbeat",
+		},
 		Retry: Retry{MaxRetries: 5, Backoff: Backoff{
 			Strategy: "exponential", BaseSeconds: 2, Multiplier: 2, MaxSeconds: 300, Jitter: true,
 		}},

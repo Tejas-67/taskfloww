@@ -16,17 +16,23 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/api"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/backoff"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/broker"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/config"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/consumer"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/dispatcher"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/relay"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/service"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
-var version = "0.0.0-phase3a"
+var version = "0.0.0-phase3c"
 
 func main() {
 	var configPath string
@@ -63,6 +69,26 @@ func main() {
 	}
 	defer st.Close()
 
+	// Connect to RabbitMQ (transport) and declare the queue/DLX topology.
+	brk, err := broker.Connect(cfg.Broker.URI, cfg.Broker.ConnectionName)
+	if err != nil {
+		logger.Error("failed to connect to broker", "error", err.Error())
+		os.Exit(1)
+	}
+	defer brk.Close()
+	if err := brk.DeclareTopology(cfg.Queues, cfg.Control); err != nil {
+		logger.Error("failed to declare broker topology", "error", err.Error())
+		os.Exit(1)
+	}
+
+	// Control-queue consumer stream (worker results + heartbeats).
+	ctrlDeliveries, ctrlCh, err := brk.Consume(cfg.Control.Queue, "orchestrator", cfg.Broker.Prefetch)
+	if err != nil {
+		logger.Error("failed to consume control queue", "error", err.Error())
+		os.Exit(1)
+	}
+	defer ctrlCh.Close()
+
 	svc := service.New(st, cfg)
 	router := api.NewRouter(svc, logger)
 
@@ -71,6 +97,17 @@ func main() {
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	// Background engine loops: dispatcher (DB → outbox), relay (outbox → broker),
+	// and the result/heartbeat consumer (broker → DB).
+	disp := dispatcher.New(st, cfg, logger)
+	rel := relay.New(st, brk, logger, cfg.Scheduler.DispatchBatchSize, cfg.Scheduler.PollInterval())
+	cons := consumer.New(st, backoff.New(cfg.Retry.Backoff), cfg.Heartbeat.LeaseTTL(), logger)
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); disp.Run(ctx) }()
+	go func() { defer wg.Done(); rel.Run(ctx) }()
+	go func() { defer wg.Done(); cons.Run(ctx, ctrlDeliveries) }()
 
 	go func() {
 		logger.Info("orchestrator starting",
@@ -81,6 +118,7 @@ func main() {
 			// credentials are redacted before logging
 			"database", config.RedactURI(cfg.Database.URI),
 			"broker", config.RedactURI(cfg.Broker.URI),
+			"instance", disp.InstanceID(),
 			"tasks_configured", len(cfg.Tasks),
 			"lease_ttl", cfg.Heartbeat.LeaseTTL().String(),
 			"heartbeat_interval", cfg.Heartbeat.Interval().String(),
@@ -98,8 +136,8 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
-		os.Exit(1)
 	}
+	wg.Wait() // let dispatcher/relay finish their current tick
 	logger.Info("orchestrator stopped cleanly")
 }
 

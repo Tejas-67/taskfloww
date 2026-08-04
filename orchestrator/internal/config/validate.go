@@ -95,6 +95,20 @@ func (c *Config) Validate() error {
 		add("queues.dead_letter.name is required")
 	}
 
+	// control (worker → orchestrator results/heartbeats)
+	if c.Control.Exchange == "" {
+		add("control.exchange is required")
+	}
+	if c.Control.Queue == "" {
+		add("control.queue is required")
+	}
+	if c.Control.ResultRoutingKey == "" {
+		add("control.result_routing_key is required")
+	}
+	if c.Control.HeartbeatRoutingKey == "" {
+		add("control.heartbeat_routing_key is required")
+	}
+
 	// retry / backoff
 	if c.Retry.MaxRetries < 0 {
 		add("retry.max_retries must be >= 0 (got %d)", c.Retry.MaxRetries)
