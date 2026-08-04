@@ -3,7 +3,7 @@
 > A **stateless**, **config-driven** distributed **Task Scheduler & Workflow Engine**.
 > Go orchestrator · Python workers · PostgreSQL (source of truth) · RabbitMQ (transport + DLQ).
 
-[![status](https://img.shields.io/badge/status-phase%202%20config-orange)]()
+[![status](https://img.shields.io/badge/status-phase%203a%20submission%20api-orange)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)]()
 
 TaskFloww lets a developer **write a Python function, map it to a task name in a YAML file, and
@@ -15,10 +15,10 @@ Queue, and Prometheus/JSON observability — **without editing the core engine**
 
 ## Status
 
-🚧 **Phase 2 — plug-and-play configuration.** One YAML file (with env interpolation + overrides)
-drives both the orchestrator and workers, validated fail-fast on both sides. Database (Phase 1)
-and scaffold (Phase 0) are in place. The scheduling engine (API, dispatcher, consumer, reaper) is
-built in later phases — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+🚧 **Phase 3a — submission API.** The orchestrator now serves a REST API (chi) to submit
+(immediate / delayed / recurring), fetch, and cancel tasks — persisted to PostgreSQL behind a
+`SchedulerService` interface. Config (Phase 2), schema (Phase 1), and scaffold (Phase 0) are in
+place. The SKIP LOCKED dispatcher, consumer, and reaper come next — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -104,10 +104,27 @@ and the full reference in [`docs/CONFIG.md`](docs/CONFIG.md).
 python -m taskfloww_worker -c config/config.example.yaml    # Python
 ```
 
+## REST API
+
+Once Postgres is up and migrated, the orchestrator serves a task API (full reference:
+[`docs/API.md`](docs/API.md)):
+
+```bash
+# submit an immediate task
+curl -X POST localhost:8080/v1/tasks -H 'Content-Type: application/json' \
+  -d '{"task_name":"send_email","payload":{"to":"a@b.com"},"priority":5}'
+# fetch / cancel
+curl localhost:8080/v1/tasks/<uuid>
+curl -X POST localhost:8080/v1/tasks/<uuid>/cancel
+```
+
+Supports `immediate` / `delayed` (`delay_seconds`|`run_at`) / `recurring` (`cron`); submissions are
+idempotent on `id`; unknown task names are rejected (only configured tasks are accepted).
+
 ## Building the components
 
 ```bash
-# Orchestrator (Go)
+# Orchestrator (Go) — requires Postgres (make up && make migrate-up)
 cd orchestrator && go build ./... && ./orchestrator -config ../config/config.example.yaml
 
 # Worker (Python)

@@ -3,21 +3,39 @@
 Stateless orchestrator for TaskFloww. All state lives in PostgreSQL and RabbitMQ, so any number
 of instances can run behind a load balancer.
 
-**Phase 0 scaffold** — currently just a health server with structured JSON logging and graceful
-shutdown. Components added in later phases (see [`../docs/ROADMAP.md`](../docs/ROADMAP.md)):
+**Phase 3a** — config-driven boot, PostgreSQL connection (source of truth), and the REST
+**submission API** (chi) behind the `SchedulerService` interface, with structured JSON logging and
+graceful shutdown.
 
-- **API** (`chi`) — submit / cancel / query tasks; writes task + outbox row in one tx.
-- **Dispatcher** — `SELECT … FOR UPDATE SKIP LOCKED` due-task poller.
-- **Outbox relay** — atomic state-commit ↔ RabbitMQ publish.
-- **Result/Heartbeat consumer** — the single writer of terminal task state; renews leases.
-- **Reaper** — lease-expiry re-queue (retry/backoff → DLQ), worker liveness, cron `next_run_at`.
+## Packages
+
+| Package | Responsibility |
+|---|---|
+| `cmd/orchestrator` | entrypoint: load config → connect DB → build API → serve |
+| `internal/config` | plug-and-play config loader (koanf) |
+| `internal/domain` | task/worker state machines + models (mirrors the SQL schema) |
+| `internal/store` | PostgreSQL persistence (pgx); the only writer of task state |
+| `internal/service` | `SchedulerService` — validation, scheduling, cron (transport-agnostic) |
+| `internal/api` | REST layer (chi): decode → service → encode; error mapping |
+
+Coming next: dispatcher (SKIP LOCKED) + outbox relay (3b), result/heartbeat consumer (3c),
+reaper (3d) — see [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## Run
 
 ```bash
+# needs Postgres (see ../deploy) migrated with goose
 go build ./...
-TASKFLOWW_HTTP_ADDR=":8080" ./orchestrator
-curl -s localhost:8080/healthz    # {"status":"ok"}
+./orchestrator -config ../config/config.example.yaml     # serves :8080
+curl -s localhost:8080/healthz                            # {"status":"ok"}
 ```
 
-Module path: `github.com/Tejas-67/taskfloww/orchestrator`.
+## Test
+
+```bash
+go test ./...                                   # unit tests (no DB needed)
+TASKFLOWW_TEST_DB_URI="postgres://…?sslmode=disable" \
+  go test -tags=integration ./internal/store/   # store integration tests (needs Postgres)
+```
+
+Module path: `github.com/Tejas-67/taskfloww/orchestrator`. API reference: [`../docs/API.md`](../docs/API.md).

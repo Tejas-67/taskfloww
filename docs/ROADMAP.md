@@ -24,7 +24,7 @@ DB URI, queue/routing defs, retry policy, heartbeat/timeout, **task→function m
 **Deliverable:** one `config.yaml` drives both sides; invalid config fails fast with clear errors.
 **Depends on:** Phase 0
 
-## Phase 3a — Submission API  `[ ]`  (`phase3a-api`)
+## Phase 3a — Submission API  `[x]`  (`phase3a-api`)
 REST-first (`chi`) behind a `SchedulerService` interface. Validate + insert task **and** outbox row
 in one tx. Supports immediate / delayed / recurring + priority + `max_retries`.
 **Deliverable:** `POST /tasks` persists a task and its outbox row atomically.

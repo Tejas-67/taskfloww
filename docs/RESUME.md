@@ -10,11 +10,12 @@ _Last updated: 2026-07-29 (planning session)._
 ## TL;DR
 
 We finished **discovery + planning** and shipped **Phase 0 (bootstrap)**, **Phase 1 (schema &
-migrations)**, and **Phase 2 (plug-and-play config)**. All architecture decisions are locked. One
-YAML file drives both sides with env interpolation/overrides + fail-fast validation. Next action =
-**Phase 3a (submission API)** or **Phase 3b (dispatcher)**.
+migrations)**, **Phase 2 (plug-and-play config)**, and **Phase 3a (submission API)**. All
+architecture decisions are locked. The orchestrator serves a REST API (submit immediate/delayed/
+recurring, get, cancel) persisting to Postgres behind `SchedulerService`. Next = **Phase 3b
+(dispatcher + outbox relay)**.
 
-> ⚠️ Phase 2 is implemented and validated but **not yet committed** — the user commits manually.
+> ⚠️ Phase 3a is implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -41,6 +42,13 @@ YAML file drives both sides with env interpolation/overrides + fail-fast validat
   validation (heartbeat lease invariant, handler shape, queue refs, etc.). Wired into both mains
   (config-driven logging + redacted startup summary). `docs/CONFIG.md` reference. Tests: Go
   `internal/config` + Python `worker/tests` all green; smoke-tested both binaries on the example.
+- ✅ **Phase 3a implemented (uncommitted)** — REST submission API. New Go packages: `internal/store`
+  (pgx; the only task-state writer), `internal/service` (`SchedulerService`: validation, next_run_at,
+  cron via robfig/cron), `internal/api` (chi: POST/GET/cancel, error mapping, request logging).
+  Wired into `cmd/orchestrator` (connect Postgres → serve API). Supports immediate/delayed/recurring
+  + priority + max_retries; idempotent on `id`; unknown task names rejected. Tests: service (fake
+  store) + api (fake service) unit tests + a `-tags=integration` store test. **Validated end-to-end**
+  against a throwaway Postgres: submit/get/cancel/idempotency/404/409/400 all correct; rows persisted.
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -51,21 +59,31 @@ YAML file drives both sides with env interpolation/overrides + fail-fast validat
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-**Phase 2 is done** (pending your manual commit). Next: **Phase 3a — submission API** (REST via
-`chi` behind a `SchedulerService` interface; validate + insert task in one tx) or **Phase 3b —
-dispatcher** (SKIP LOCKED due-scan + outbox relay).
+**Phase 3a is done** (pending your manual commit). Next: **Phase 3b — dispatcher + outbox relay**
+(claim due tasks via `SELECT … FOR UPDATE SKIP LOCKED`, write outbox row in the same tx, publish to
+RabbitMQ priority queues, mark dispatched). Then 3c (result/heartbeat consumer) and 3d (reaper).
 
 ---
 
 ## The immediate next step
 
-> Execute **Phase 3a — submission API** or **Phase 3b — dispatcher** (see ROADMAP.md).
-> Phase 3a: REST via `chi` behind a `SchedulerService` interface; validate + insert task (+ compute
-> next_run_at for immediate/delayed) in one tx. Phase 3b: SKIP LOCKED due-scan + outbox relay.
+> Execute **Phase 3b — dispatcher + outbox relay** (see ROADMAP.md): a loop that claims due tasks
+> (`state IN ('queued','retrying') AND next_run_at <= now()`) via `SELECT … FOR UPDATE SKIP LOCKED`,
+> sets them `dispatching` + lease, writes an `outbox` row in the SAME tx, and a relay publishes
+> outbox rows to RabbitMQ priority queues (needs a broker — `make up`, or add a RabbitMQ test dep).
 
 **Tooling installed this session:** Go 1.26.5, `goose` (`~/go/bin`), PostgreSQL 16
 (`/opt/homebrew/opt/postgresql@16`, keg-only), Python venv at `worker/.venv` (pydantic + pyyaml +
 pytest). **Docker is still not installed** — install Docker Desktop (or `colima`) to run `make up`.
+Phase 3a was validated against a throwaway local Postgres (initdb + goose + curl).
+
+### Engine notes (Phase 3a)
+- Layering: `api` (chi) → `service` (`SchedulerService`, validation/cron) → `store` (pgx).
+  The store is the ONLY task-state writer (ADR-0002/B1).
+- Recurring submissions create a `schedules` row (a cron *definition*); firing/materialization into
+  `tasks` runs is Phase 3d. Immediate/delayed create a `tasks` row directly.
+- Outbox is written at **dispatch** (Phase 3b), not submission (see SCHEMA.md refinement).
+- Store integration tests are build-tagged `integration` and need `TASKFLOWW_TEST_DB_URI`.
 
 ### Config loader notes (Phase 2)
 - Go loader lives in `orchestrator/internal/config` (koanf); Python in
@@ -85,6 +103,7 @@ pytest). **Docker is still not installed** — install Docker Desktop (or `colim
 | Phased roadmap + dependency graph | `docs/ROADMAP.md` |
 | DB schema, ERD, indexing rationale | `docs/SCHEMA.md` |
 | Config reference (plug-and-play) | `docs/CONFIG.md` |
+| REST API reference | `docs/API.md` |
 | This resume file | `docs/RESUME.md` |
 | Live task tracking | session DB `todos` / `todo_deps` |
 | Decision record (machine-readable) | session DB `decisions` |
@@ -96,6 +115,15 @@ pytest). **Docker is still not installed** — install Docker Desktop (or `colim
 3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 3a).
 
 ## Progress log
+- **2026-07-31 (Phase 3a)** — Submission API. New Go packages: `internal/store` (pgx; only
+  task-state writer, sentinel errors, jsonb/enum/uuid casts), `internal/service`
+  (`SchedulerService`: validate task_name against config, next_run_at for immediate/delayed, cron
+  via robfig/cron for recurring→schedule, idempotent submit), `internal/api` (chi router: POST
+  `/v1/tasks`, GET/cancel, error→status mapping, request logging). Wired `cmd/orchestrator` to
+  connect Postgres + serve. Tests: service (fake store), api (fake service), store integration
+  (`-tags=integration`). Deps: chi, pgx, robfig/cron, google/uuid. Validated end-to-end on a
+  throwaway Postgres (submit immediate/delayed/recurring, get, cancel, idempotency, 400/404/409,
+  rows persisted). Added `docs/API.md`. **Not committed** (user commits manually).
 - **2026-07-31 (Phase 2)** — Plug-and-play config on both sides. Go: `internal/config` (koanf) with
   `${VAR:-default}` interpolation, `TASKFLOWW_*__*` env overrides, aggregated fail-fast validation,
   `RedactURI`, + tests; wired into `cmd/orchestrator`. Python: `taskfloww_worker/config.py`

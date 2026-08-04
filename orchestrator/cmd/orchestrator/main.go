@@ -1,10 +1,10 @@
 // Command orchestrator is the entrypoint for the TaskFloww orchestrator.
 //
-// Phase 2: boots from the plug-and-play config file (path via -config or
-// TASKFLOWW_CONFIG), configures structured logging from it, and serves a
-// liveness endpoint with graceful shutdown. Invalid config fails fast. The
-// scheduling engine — submission API, SKIP LOCKED dispatcher, result/heartbeat
-// consumer, reaper, and outbox relay — is added in later phases (docs/ROADMAP.md).
+// Phase 3a: loads config, connects to PostgreSQL (source of truth), and serves
+// the REST submission API (chi) behind the SchedulerService interface, with
+// config-driven structured logging and graceful shutdown. The SKIP LOCKED
+// dispatcher, result/heartbeat consumer, reaper, and outbox relay are added in
+// later phases (docs/ROADMAP.md).
 package main
 
 import (
@@ -19,11 +19,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/api"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/config"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/service"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
-var version = "0.0.0-phase2"
+var version = "0.0.0-phase3a"
 
 func main() {
 	var configPath string
@@ -44,24 +47,30 @@ func main() {
 	logger := newLogger(cfg.Logging)
 	slog.SetDefault(logger)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	// NOTE: GET /metrics (Prometheus) is wired in Phase 5 (observability).
-
-	srv := &http.Server{
-		Addr:              cfg.Server.HTTPAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
 	// Cancel the root context on shutdown signals so we can drain gracefully —
 	// a prerequisite for at-least-once delivery (no work lost on redeploys).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Connect to PostgreSQL (the source of truth). Fail fast if unavailable.
+	dbCtx, cancelDB := context.WithTimeout(ctx, 10*time.Second)
+	st, err := store.Connect(dbCtx, cfg.Database.URI,
+		cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.ConnMaxIdleSeconds)
+	cancelDB()
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err.Error())
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	svc := service.New(st, cfg)
+	router := api.NewRouter(svc, logger)
+
+	srv := &http.Server{
+		Addr:              cfg.Server.HTTPAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		logger.Info("orchestrator starting",
