@@ -13,6 +13,7 @@ Run the worker from the `worker/` directory so ``examples`` is importable.
 from __future__ import annotations
 
 import logging
+import time
 
 log = logging.getLogger("taskfloww.examples")
 
@@ -34,3 +35,11 @@ def generate_report(payload: dict) -> dict:
 def always_fails(payload: dict) -> dict:
     """A handler that always raises — useful to exercise retries/DLQ."""
     raise RuntimeError("intentional failure for testing")
+
+
+def slow(payload: dict) -> dict:
+    """Sleeps for `seconds` (default 10) — useful to exercise crash recovery."""
+    seconds = int(payload.get("seconds", 10))
+    log.info("slow task sleeping %ss", seconds)
+    time.sleep(seconds)
+    return {"slept": seconds}

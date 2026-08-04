@@ -49,6 +49,8 @@ def configure_logging(level: str = "info", fmt: str = "json") -> logging.Logger:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(_LEVELS.get(level, logging.INFO))
+    # pika is chatty (logs IPv6→IPv4 fallback at ERROR); keep it at WARNING.
+    logging.getLogger("pika").setLevel(logging.WARNING)
     return logging.getLogger("taskfloww.worker")
 
 

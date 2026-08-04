@@ -9,13 +9,13 @@ _Last updated: 2026-07-29 (planning session)._
 
 ## TL;DR
 
-We finished **discovery + planning** and shipped **Phase 0 → 4**: bootstrap, schema, config,
-submission API, dispatcher+outbox relay, **result/heartbeat consumer (3c)**, and the **Python
-worker SDK (4)**. **Milestone M1 (walking skeleton) is complete** — the full loop works end-to-end
-(submit → dispatch → worker executes → completed; failures retry→DLQ). Next = **Phase 3d (reaper:
-crash re-queue + cron firing)**, then 3e (DLQ replay), 5 (metrics), 6 (tests), 7 (docs).
+We finished **discovery + planning** and shipped **Phase 0 → 3d**: bootstrap, schema, config,
+submission API, dispatcher+relay, result/heartbeat consumer, Python worker SDK, and now the
+**reaper** (crash re-queue via expired leases + cron schedule firing + stale-worker marking). The
+system is **self-healing end-to-end**. Next = **Phase 3e (DLQ replay)**, then 5 (Prometheus
+metrics), 6 (fault-tolerance test suite), 7 (docs).
 
-> ⚠️ Phases 3c + 4 are implemented and validated but **not yet committed** — the user commits manually.
+> ⚠️ Phase 3d is implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -60,9 +60,14 @@ crash re-queue + cron firing)**, then 3e (DLQ replay), 5 (metrics), 6 (tests), 7
   `ApplyResult`/`RenewLeases`/`UpsertWorker`, control topology + `Consume` on the broker, message
   `control.go`. Python worker SDK: `messages`, `registry` (imports `module:function`), `worker`
   (pika consume + thread-pool exec + threadsafe result/ack + heartbeats + dedupe + graceful stop),
-  `examples/tasks.py`, wired `__main__`. Dep: pika. Validated **full E2E** on throwaway PG +
-  RabbitMQ 4.3.4: happy path (submit→execute→completed, result persisted, worker auto-registered)
-  AND failure path (fail→retry w/ backoff→dead + dead_letters). Store integration suite green.
+  `examples/tasks.py`, wired `__main__`. Dep: pika.
+- ✅ **Phase 3d implemented (uncommitted)** — the reaper makes it self-healing. Go: `internal/reaper`
+  (expired-lease re-queue → retry/backoff or dead+dead_letters; cron schedule firing → materialize
+  recurring task runs; stale-worker marking), store `ReapExpiredLeases`/`FireDueSchedules`/
+  `MarkStaleWorkers` + `NextFireFunc`, wired as a 4th engine loop. Robustness fixes found via E2E:
+  worker now **self-declares** its work queues (can start before the orchestrator). Validated:
+  reaper unit + 4 store integration tests, plus a **crash E2E** (kill -9 a worker mid-task →
+  reaper re-queues → healthy worker completes; stale worker marked dead) on throwaway PG + RabbitMQ.
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -73,10 +78,22 @@ crash re-queue + cron firing)**, then 3e (DLQ replay), 5 (metrics), 6 (tests), 7
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-**Phases 3c + 4 done** (pending your manual commit). Next: **Phase 3d — reaper** (scan expired
-leases → re-queue crashed tasks with backoff or DLQ; scan due `schedules` → materialize recurring
-`tasks` runs; mark stale workers dead). Guard multi-instance via `SKIP LOCKED`/advisory locks.
-Then 3e (DLQ replay), 5 (Prometheus metrics), 6 (fault-tolerance test suite), 7 (docs).
+**Phase 3d done** (pending your manual commit). Next: **Phase 3e — DLQ replay** (RabbitMQ DLX is
+already declared + `dead_letters` table populated; add an operator path to list/replay dead tasks
+back into `queued`). Then 5 (Prometheus `/metrics` on both sides), 6 (fault-tolerance test suite),
+7 (docs + quickstart).
+
+### Reaper notes (Phase 3d)
+- The reaper runs three scans every `heartbeat.reaper_interval_seconds`, all `SKIP LOCKED` guarded:
+  `ReapExpiredLeases` (state IN dispatching/running AND lease_expires_at < now → retry/dead),
+  `FireDueSchedules` (enabled schedules due → materialize a `recurring` task + advance next_fire_at
+  via `reaper.NextFire` cron), `MarkStaleWorkers`.
+- Crash recovery has **two** layers: RabbitMQ redelivers a worker's *unacked* message when its
+  connection drops (fast), and the reaper re-queues via the DB lease (backstop for hung/stuck
+  workers or lost messages). Idempotency (execution-state dedup) keeps duplicates safe.
+- The worker does a **graceful drain** on SIGTERM (finishes in-flight work); a real crash is SIGKILL.
+- E2E used short timings via env: `TASKFLOWW_HEARTBEAT__LEASE_TTL_SECONDS=6`, `__INTERVAL_SECONDS=2`,
+  `__REAPER_INTERVAL_SECONDS=2`.
 
 ---
 
@@ -137,6 +154,13 @@ throwaway local Postgres + RabbitMQ nodes (initdb/goose/curl + rabbitmq-server).
 3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 3a).
 
 ## Progress log
+- **2026-08-04 (Phase 3d)** — Reaper (self-healing). Go: `internal/reaper` (expired-lease re-queue,
+  cron schedule firing via robfig/cron, stale-worker marking), store `ReapExpiredLeases`/
+  `FireDueSchedules`/`MarkStaleWorkers`, wired as a 4th engine loop. Worker now self-declares work
+  queues (start-order independent) + quieter pika logging; added `slow` example task. Fixed via
+  E2E: worker 404 when starting before orchestrator. Reaper unit + 4 store integration tests green;
+  **crash E2E** (kill -9 mid-task → reaper re-queue → healthy worker completes) proven on throwaway
+  PG + RabbitMQ. **Not committed** (user commits manually).
 - **2026-08-04 (Phase 3c + 4)** — Closed the execution loop. Go: `internal/consumer` (idempotent
   result apply via execution-state dedup → completed/retrying/dead+dead_letters; heartbeat lease
   renew + worker upsert), `internal/backoff` (exp/fixed+jitter), store `ApplyResult`/`RenewLeases`/

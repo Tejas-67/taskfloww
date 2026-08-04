@@ -42,7 +42,7 @@ executions idempotently. **The only component that writes terminal task state.**
 **Deliverable:** completion + heartbeat messages correctly mutate state.
 **Depends on:** Phases 1, 2
 
-## Phase 3d — Reaper  `[ ]`  (`phase3d-reaper`)
+## Phase 3d — Reaper  `[x]`  (`phase3d-reaper`)
 Worker-liveness scan + task-lease-expiry scan → re-queue (retry, exp backoff + jitter) or DLQ when
 `attempt > max`; compute cron `next_run_at`. Guarded across instances via `SKIP LOCKED`/advisory locks.
 **Deliverable:** killing a worker mid-task re-queues to a healthy worker.

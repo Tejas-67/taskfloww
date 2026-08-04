@@ -26,13 +26,14 @@ import (
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/config"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/consumer"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/dispatcher"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/reaper"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/relay"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/service"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
-var version = "0.0.0-phase3c"
+var version = "0.0.0-phase3d"
 
 func main() {
 	var configPath string
@@ -99,15 +100,18 @@ func main() {
 	}
 
 	// Background engine loops: dispatcher (DB → outbox), relay (outbox → broker),
-	// and the result/heartbeat consumer (broker → DB).
+	// the result/heartbeat consumer (broker → DB), and the reaper (self-healing).
 	disp := dispatcher.New(st, cfg, logger)
 	rel := relay.New(st, brk, logger, cfg.Scheduler.DispatchBatchSize, cfg.Scheduler.PollInterval())
 	cons := consumer.New(st, backoff.New(cfg.Retry.Backoff), cfg.Heartbeat.LeaseTTL(), logger)
+	reap := reaper.New(st, backoff.New(cfg.Retry.Backoff), cfg.Heartbeat.ReaperInterval(),
+		cfg.Scheduler.DispatchBatchSize, cfg.Heartbeat.LeaseTTL(), logger)
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() { defer wg.Done(); disp.Run(ctx) }()
 	go func() { defer wg.Done(); rel.Run(ctx) }()
 	go func() { defer wg.Done(); cons.Run(ctx, ctrlDeliveries) }()
+	go func() { defer wg.Done(); reap.Run(ctx) }()
 
 	go func() {
 		logger.Info("orchestrator starting",

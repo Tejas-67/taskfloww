@@ -15,11 +15,12 @@ Queue, and Prometheus/JSON observability — **without editing the core engine**
 
 ## Status
 
-✅ **Milestone M1 — walking skeleton complete.** The full loop works end-to-end: submit a task →
-dispatcher claims it (`SKIP LOCKED`) → outbox → RabbitMQ → **Python worker runs your function** →
-result → orchestrator marks it `completed`. Failures retry with backoff and land in a **DLQ** when
-exhausted; workers heartbeat to renew leases and register themselves. Next up: reaper (crash
-re-queue), DLQ replay, metrics, tests, docs — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+✅ **Milestone M1 + fault tolerance.** The full loop runs end-to-end (submit → dispatch → **worker
+runs your function** → completed), and the **reaper** now makes it self-healing: a crashed worker's
+tasks are detected via missed heartbeats/expired leases and **re-queued to a healthy worker**;
+recurring **cron schedules** fire into task runs; stale workers are marked dead. Failures retry with
+backoff → **DLQ** when exhausted. Next: DLQ replay, Prometheus metrics, test hardening, docs — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 

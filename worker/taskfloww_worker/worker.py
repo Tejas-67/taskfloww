@@ -74,8 +74,10 @@ class Worker:
         self._conn = pika.BlockingConnection(params)
         self._ch = self._conn.channel()
         self._ch.basic_qos(prefetch_count=self.cfg.broker.prefetch)
-        # Control exchange is declared by the orchestrator too; declaring is idempotent.
-        self._ch.exchange_declare(self.cfg.control.exchange, exchange_type="direct", durable=True)
+        # Declare the exchanges/queues we use (idempotent — matches the
+        # orchestrator's topology) so the worker is self-sufficient even if it
+        # starts before the orchestrator.
+        self._declare_topology()
 
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, self.cfg.broker.prefetch))
         for q in self._queues:
@@ -108,6 +110,27 @@ class Worker:
                 self._conn.close()
             except Exception:  # pragma: no cover
                 pass
+
+    # -- topology -----------------------------------------------------------
+
+    def _declare_topology(self) -> None:
+        """Declare (idempotently) the exchanges and work queues this worker uses,
+        matching the orchestrator's topology so the worker can start first."""
+        q = self.cfg.queues
+        self._ch.exchange_declare(q.default_exchange, exchange_type="direct", durable=True)
+        self._ch.exchange_declare(self.cfg.control.exchange, exchange_type="direct", durable=True)
+        defs = {d.name: d for d in q.definitions}
+        for name in self._queues:
+            d = defs.get(name)
+            if d is None:
+                continue
+            args = {
+                "x-max-priority": d.max_priority,
+                "x-dead-letter-exchange": q.dead_letter_exchange,
+                "x-dead-letter-routing-key": q.dead_letter.routing_key,
+            }
+            self._ch.queue_declare(name, durable=True, arguments=args)
+            self._ch.queue_bind(name, exchange=q.default_exchange, routing_key=d.routing_key)
 
     # -- message handling ---------------------------------------------------
 

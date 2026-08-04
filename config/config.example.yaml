@@ -101,3 +101,6 @@ tasks:
   - name: flaky
     handler: examples.tasks:always_fails
     queue: tasks.default
+  - name: slow
+    handler: examples.tasks:slow
+    queue: tasks.default

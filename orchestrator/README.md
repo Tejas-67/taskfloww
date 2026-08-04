@@ -3,10 +3,10 @@
 Stateless orchestrator for TaskFloww. All state lives in PostgreSQL and RabbitMQ, so any number
 of instances can run behind a load balancer.
 
-**Phase 3c** — the orchestrator now runs the full loop: config-driven boot; PostgreSQL (source of
-truth) + RabbitMQ (transport); the REST **submission API**; the **dispatcher** (SKIP LOCKED → outbox),
-**outbox relay** (→ RabbitMQ, with channel recovery), and **result/heartbeat consumer** (← workers:
-applies results idempotently, retries with backoff → DLQ, renews leases, registers workers).
+**Phase 3d** — the orchestrator runs the full self-healing engine: config-driven boot; PostgreSQL +
+RabbitMQ; the REST **submission API**; **dispatcher** (SKIP LOCKED → outbox), **outbox relay**
+(→ RabbitMQ, with channel recovery), **result/heartbeat consumer** (← workers), and the **reaper**
+(expired-lease re-queue for crashed workers, cron schedule firing, stale-worker marking).
 
 ## Packages
 
@@ -22,11 +22,11 @@ applies results idempotently, retries with backoff → DLQ, renews leases, regis
 | `internal/dispatcher` | claims due tasks (`FOR UPDATE SKIP LOCKED`) → execution ledger + outbox |
 | `internal/relay` | drains the outbox → broker (exactly-one-publish per committed transition) |
 | `internal/consumer` | applies worker results (idempotent) + heartbeats (lease renew, worker upsert) |
+| `internal/reaper` | self-healing scans: expired-lease re-queue, cron schedule firing, stale-worker marking |
 | `internal/backoff` | retry-delay policy (exponential/fixed + jitter) |
 | `internal/message` | wire contract for task/result/heartbeat messages (mirrored by the Python worker) |
 
-Coming next: reaper (crash re-queue, cron firing — 3d), DLQ replay (3e) —
-see [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
+Coming next: DLQ replay (3e), Prometheus metrics (5) — see [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## Run
 
