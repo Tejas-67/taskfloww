@@ -9,13 +9,13 @@ _Last updated: 2026-07-29 (planning session)._
 
 ## TL;DR
 
-We finished **discovery + planning** and shipped **Phase 0 → 3d**: bootstrap, schema, config,
-submission API, dispatcher+relay, result/heartbeat consumer, Python worker SDK, and now the
-**reaper** (crash re-queue via expired leases + cron schedule firing + stale-worker marking). The
-system is **self-healing end-to-end**. Next = **Phase 3e (DLQ replay)**, then 5 (Prometheus
-metrics), 6 (fault-tolerance test suite), 7 (docs).
+We finished **discovery + planning** and shipped **Phase 0 → 3e**: bootstrap, schema, config,
+submission API, dispatcher+relay, result/heartbeat consumer, Python worker SDK, reaper, and now the
+**DLQ introspection + replay** (list/inspect dead tasks, replay them back into `queued`). The
+system is **self-healing end-to-end** with an operable DLQ. Next = **Phase 5 (Prometheus metrics)**,
+then 6 (fault-tolerance test suite), 7 (docs + quickstart).
 
-> ⚠️ Phase 3d is implemented and validated but **not yet committed** — the user commits manually.
+> ⚠️ Phase 3e is implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -68,6 +68,13 @@ metrics), 6 (fault-tolerance test suite), 7 (docs).
   worker now **self-declares** its work queues (can start before the orchestrator). Validated:
   reaper unit + 4 store integration tests, plus a **crash E2E** (kill -9 a worker mid-task →
   reaper re-queues → healthy worker completes; stale worker marked dead) on throwaway PG + RabbitMQ.
+- ✅ **Phase 3e implemented (uncommitted)** — DLQ introspection + replay. Store
+  `ListDeadLetters`/`GetDeadLetter`/`ReplayDeadLetter` (`internal/store/deadletters.go`); service +
+  API routes `GET /v1/dead-letters`, `GET /v1/dead-letters/{id}`, `POST …/{id}/replay`. Fixed a real
+  **replay bug** (reset attempt=0 collided with old executions on re-dispatch → now clears the prior
+  run's execution ledger on replay). Validated: store integration (list/get/replay/conflict) + api
+  unit tests, plus a **live DLQ E2E** (reaper drove a task to `dead` → list/inspect/replay via REST →
+  task re-dispatched cleanly with a fresh execution ledger, second replay → 409).
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -78,10 +85,20 @@ metrics), 6 (fault-tolerance test suite), 7 (docs).
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-**Phase 3d done** (pending your manual commit). Next: **Phase 3e — DLQ replay** (RabbitMQ DLX is
-already declared + `dead_letters` table populated; add an operator path to list/replay dead tasks
-back into `queued`). Then 5 (Prometheus `/metrics` on both sides), 6 (fault-tolerance test suite),
-7 (docs + quickstart).
+**Phase 3e done** (pending your manual commit). Next: **Phase 5 — observability** (Prometheus
+`/metrics` on the orchestrator via `client_golang` and on the worker via `prometheus_client`;
+metrics: queue depth, worker count, task success/failure/retry counters, dispatch/execute latency
+histograms; wire the scrape jobs already stubbed in `deploy/prometheus/prometheus.yml`). Then 6
+(fault-tolerance test suite / hardening) and 7 (docs + quickstart).
+
+### DLQ notes (Phase 3e)
+- Two DLQ layers: the **`dead_letters` table** is the authoritative, queryable/replayable DLQ
+  (Postgres = source of truth); RabbitMQ's native **DLX → `tasks.dlq`** is a broker-level safety net
+  for nacked/TTL-expired messages.
+- **Replay** = reset task to `queued`, `attempt=0`, **delete the prior run's `task_executions`** (so
+  re-dispatch doesn't collide on `uq_task_attempt`), stamp `dead_letters.replayed_at`. Second replay → 409.
+- Integration tests share a DB and use greedy `ClaimDueTasks(100)`; run them against a **clean
+  schema** (`goose reset && goose up`) — accumulated cruft from reruns causes false failures.
 
 ### Reaper notes (Phase 3d)
 - The reaper runs three scans every `heartbeat.reaper_interval_seconds`, all `SKIP LOCKED` guarded:
@@ -154,6 +171,12 @@ throwaway local Postgres + RabbitMQ nodes (initdb/goose/curl + rabbitmq-server).
 3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 3a).
 
 ## Progress log
+- **2026-08-08 (Phase 3e)** — DLQ introspection + replay. Store `deadletters.go`
+  (`ListDeadLetters`/`GetDeadLetter`/`ReplayDeadLetter`), service + API routes under
+  `/v1/dead-letters`. Fixed a real replay bug (clear prior executions on replay to avoid
+  `uq_task_attempt` collision on re-dispatch). Store integration + api unit tests + a live REST E2E
+  (task driven to `dead` by the reaper → list/inspect/replay → clean re-dispatch, 409 on 2nd replay).
+  **Not committed** (user commits manually).
 - **2026-08-04 (Phase 3d)** — Reaper (self-healing). Go: `internal/reaper` (expired-lease re-queue,
   cron schedule firing via robfig/cron, stale-worker marking), store `ReapExpiredLeases`/
   `FireDueSchedules`/`MarkStaleWorkers`, wired as a 4th engine loop. Worker now self-declares work

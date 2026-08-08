@@ -19,8 +19,8 @@ Queue, and Prometheus/JSON observability — **without editing the core engine**
 runs your function** → completed), and the **reaper** now makes it self-healing: a crashed worker's
 tasks are detected via missed heartbeats/expired leases and **re-queued to a healthy worker**;
 recurring **cron schedules** fire into task runs; stale workers are marked dead. Failures retry with
-backoff → **DLQ** when exhausted. Next: DLQ replay, Prometheus metrics, test hardening, docs — see
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+backoff and, when exhausted, land in a **DLQ** that is queryable and **replayable** via the API.
+Next: Prometheus metrics, test hardening, docs — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 

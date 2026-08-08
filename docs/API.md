@@ -14,6 +14,9 @@ All responses are JSON. Errors use `{"error":{"code","message"}}`.
 | `POST` | `/v1/tasks` | Submit an immediate / delayed / recurring task |
 | `GET` | `/v1/tasks/{id}` | Fetch a task by UUID |
 | `POST` | `/v1/tasks/{id}/cancel` | Cancel a `queued`/`retrying` task |
+| `GET` | `/v1/dead-letters` | List dead-lettered tasks (`?limit=&offset=&include_replayed=true`) |
+| `GET` | `/v1/dead-letters/{id}` | Fetch one dead letter |
+| `POST` | `/v1/dead-letters/{id}/replay` | Re-queue a dead task for a fresh run |
 
 ## Submit a task — `POST /v1/tasks`
 
@@ -68,6 +71,27 @@ curl -X POST localhost:8080/v1/tasks/<uuid>/cancel  # 200 cancelled | 409 not ca
 
 `cancel` only succeeds while the task is `queued` or `retrying`; a `running`/terminal task
 returns `409` (a running task can't be pulled back from a worker in this phase).
+
+## Dead Letter Queue (DLQ)
+
+A task that exhausts its retries transitions to `dead` and gets a `dead_letters` row (populated by
+the result consumer and the reaper). The DLQ is **queryable and replayable**:
+
+```bash
+# list un-replayed dead letters (newest first)
+curl 'localhost:8080/v1/dead-letters?limit=50'
+# inspect one
+curl localhost:8080/v1/dead-letters/<uuid>
+# replay: reset the task to queued (fresh attempt budget) and re-dispatch
+curl -X POST localhost:8080/v1/dead-letters/<uuid>/replay
+```
+
+- **Replay** resets the task to `queued` with `attempt=0`, clears the prior run's execution ledger
+  (so it re-dispatches cleanly), and stamps the dead letter `replayed_at`. A second replay returns
+  `409`.
+- Two DLQ layers exist: the **`dead_letters` table** (the authoritative, queryable/replayable DLQ,
+  since Postgres is the source of truth) and RabbitMQ's native **DLX → `tasks.dlq`** (a broker-level
+  safety net for nacked/TTL-expired messages).
 
 ## Status codes
 

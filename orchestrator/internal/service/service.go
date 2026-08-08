@@ -27,6 +27,9 @@ type Store interface {
 	GetTaskByIdempotencyKey(ctx context.Context, key string) (*domain.Task, error)
 	CancelTask(ctx context.Context, id string) (*domain.Task, error)
 	InsertSchedule(ctx context.Context, s *domain.Schedule) error
+	ListDeadLetters(ctx context.Context, limit, offset int, includeReplayed bool) ([]domain.DeadLetter, error)
+	GetDeadLetter(ctx context.Context, id string) (*domain.DeadLetter, error)
+	ReplayDeadLetter(ctx context.Context, id string) (*domain.Task, error)
 }
 
 // SchedulerService is the core API surface (transport-agnostic).
@@ -34,6 +37,9 @@ type SchedulerService interface {
 	Submit(ctx context.Context, req SubmitRequest) (*SubmitResult, error)
 	GetTask(ctx context.Context, id string) (*domain.Task, error)
 	CancelTask(ctx context.Context, id string) (*domain.Task, error)
+	ListDeadLetters(ctx context.Context, limit, offset int, includeReplayed bool) ([]domain.DeadLetter, error)
+	GetDeadLetter(ctx context.Context, id string) (*domain.DeadLetter, error)
+	ReplayDeadLetter(ctx context.Context, id string) (*domain.Task, error)
 }
 
 // ValidationError signals a bad request (mapped to HTTP 400).
@@ -279,6 +285,36 @@ func (s *Service) GetTask(ctx context.Context, id string) (*domain.Task, error) 
 // CancelTask cancels a queued/retrying task.
 func (s *Service) CancelTask(ctx context.Context, id string) (*domain.Task, error) {
 	return s.store.CancelTask(ctx, id)
+}
+
+// Dead-letter list paging bounds.
+const (
+	defaultDLQLimit = 50
+	maxDLQLimit     = 200
+)
+
+// ListDeadLetters returns dead letters (newest first), clamping paging bounds.
+func (s *Service) ListDeadLetters(ctx context.Context, limit, offset int, includeReplayed bool) ([]domain.DeadLetter, error) {
+	if limit <= 0 {
+		limit = defaultDLQLimit
+	}
+	if limit > maxDLQLimit {
+		limit = maxDLQLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.store.ListDeadLetters(ctx, limit, offset, includeReplayed)
+}
+
+// GetDeadLetter returns a dead letter by id.
+func (s *Service) GetDeadLetter(ctx context.Context, id string) (*domain.DeadLetter, error) {
+	return s.store.GetDeadLetter(ctx, id)
+}
+
+// ReplayDeadLetter re-queues a dead task for another run.
+func (s *Service) ReplayDeadLetter(ctx context.Context, id string) (*domain.Task, error) {
+	return s.store.ReplayDeadLetter(ctx, id)
 }
 
 func (s *Service) keyOrGen(key string) string {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +42,10 @@ func NewRouter(svc service.SchedulerService, logger *slog.Logger) *chi.Mux {
 		r.Post("/tasks", h.submitTask)
 		r.Get("/tasks/{id}", h.getTask)
 		r.Post("/tasks/{id}/cancel", h.cancelTask)
+
+		r.Get("/dead-letters", h.listDeadLetters)
+		r.Get("/dead-letters/{id}", h.getDeadLetter)
+		r.Post("/dead-letters/{id}/replay", h.replayDeadLetter)
 	})
 	return r
 }
@@ -142,6 +147,45 @@ func (h *Handler) cancelTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
+func (h *Handler) listDeadLetters(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := atoiDefault(q.Get("limit"), 0)
+	offset := atoiDefault(q.Get("offset"), 0)
+	includeReplayed := q.Get("include_replayed") == "true"
+	items, err := h.svc.ListDeadLetters(r.Context(), limit, offset, includeReplayed)
+	if err != nil {
+		h.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"dead_letters": items, "count": len(items)})
+}
+
+func (h *Handler) getDeadLetter(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	dl, err := h.svc.GetDeadLetter(r.Context(), id)
+	if err != nil {
+		h.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dl)
+}
+
+func (h *Handler) replayDeadLetter(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	task, err := h.svc.ReplayDeadLetter(r.Context(), id)
+	if err != nil {
+		h.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"replayed": true, "task": task})
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // parseID extracts and validates the {id} path param as a UUID.
@@ -152,6 +196,17 @@ func parseID(w http.ResponseWriter, r *http.Request) (string, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// atoiDefault parses s as an int, returning def on empty/invalid input.
+func atoiDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return def
 }
 
 // mapError translates domain/store errors into HTTP responses.

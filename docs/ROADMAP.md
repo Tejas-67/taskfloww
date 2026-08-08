@@ -48,7 +48,7 @@ Worker-liveness scan + task-lease-expiry scan → re-queue (retry, exp backoff +
 **Deliverable:** killing a worker mid-task re-queues to a healthy worker.
 **Depends on:** Phase 3c
 
-## Phase 3e — DLQ wiring  `[ ]`  (`phase3e-dlq`)
+## Phase 3e — DLQ wiring  `[x]`  (`phase3e-dlq`)
 Native dead-letter exchange topology + `dead_letters` table for introspection; move exhausted tasks;
 replay path.
 **Deliverable:** tasks past `max_retries` land in the DLQ and are inspectable/replayable.

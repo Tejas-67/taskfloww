@@ -16,9 +16,12 @@ import (
 
 // fakeSvc implements service.SchedulerService via injectable funcs.
 type fakeSvc struct {
-	submit func(context.Context, service.SubmitRequest) (*service.SubmitResult, error)
-	get    func(context.Context, string) (*domain.Task, error)
-	cancel func(context.Context, string) (*domain.Task, error)
+	submit   func(context.Context, service.SubmitRequest) (*service.SubmitResult, error)
+	get      func(context.Context, string) (*domain.Task, error)
+	cancel   func(context.Context, string) (*domain.Task, error)
+	listDL   func(context.Context, int, int, bool) ([]domain.DeadLetter, error)
+	getDL    func(context.Context, string) (*domain.DeadLetter, error)
+	replayDL func(context.Context, string) (*domain.Task, error)
 }
 
 func (f *fakeSvc) Submit(ctx context.Context, r service.SubmitRequest) (*service.SubmitResult, error) {
@@ -29,6 +32,15 @@ func (f *fakeSvc) GetTask(ctx context.Context, id string) (*domain.Task, error) 
 }
 func (f *fakeSvc) CancelTask(ctx context.Context, id string) (*domain.Task, error) {
 	return f.cancel(ctx, id)
+}
+func (f *fakeSvc) ListDeadLetters(ctx context.Context, limit, offset int, incl bool) ([]domain.DeadLetter, error) {
+	return f.listDL(ctx, limit, offset, incl)
+}
+func (f *fakeSvc) GetDeadLetter(ctx context.Context, id string) (*domain.DeadLetter, error) {
+	return f.getDL(ctx, id)
+}
+func (f *fakeSvc) ReplayDeadLetter(ctx context.Context, id string) (*domain.Task, error) {
+	return f.replayDL(ctx, id)
 }
 
 const validUUID = "11111111-1111-1111-1111-111111111111"
@@ -146,5 +158,35 @@ func TestHealthz(t *testing.T) {
 	w := do(t, &fakeSvc{}, http.MethodGet, "/healthz", "")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "ok") {
 		t.Fatalf("healthz failed: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListDeadLetters(t *testing.T) {
+	svc := &fakeSvc{listDL: func(_ context.Context, _, _ int, _ bool) ([]domain.DeadLetter, error) {
+		return []domain.DeadLetter{{ID: validUUID, TaskName: "flaky"}}, nil
+	}}
+	w := do(t, svc, http.MethodGet, "/v1/dead-letters?limit=10", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "flaky") {
+		t.Fatalf("list dead-letters failed: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReplayDeadLetterOK(t *testing.T) {
+	svc := &fakeSvc{replayDL: func(_ context.Context, _ string) (*domain.Task, error) {
+		return &domain.Task{ID: validUUID, State: domain.TaskQueued}, nil
+	}}
+	w := do(t, svc, http.MethodPost, "/v1/dead-letters/"+validUUID+"/replay", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "replayed") {
+		t.Fatalf("replay failed: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReplayDeadLetterAlreadyReplayed(t *testing.T) {
+	svc := &fakeSvc{replayDL: func(_ context.Context, _ string) (*domain.Task, error) {
+		return nil, store.ErrConflict
+	}}
+	w := do(t, svc, http.MethodPost, "/v1/dead-letters/"+validUUID+"/replay", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", w.Code)
 	}
 }

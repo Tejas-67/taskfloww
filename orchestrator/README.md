@@ -26,7 +26,7 @@ RabbitMQ; the REST **submission API**; **dispatcher** (SKIP LOCKED → outbox), 
 | `internal/backoff` | retry-delay policy (exponential/fixed + jitter) |
 | `internal/message` | wire contract for task/result/heartbeat messages (mirrored by the Python worker) |
 
-Coming next: DLQ replay (3e), Prometheus metrics (5) — see [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
+Coming next: Prometheus metrics (5), fault-tolerance test suite (6), docs (7) — see [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## Run
 

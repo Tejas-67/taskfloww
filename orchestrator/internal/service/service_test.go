@@ -15,14 +15,16 @@ import (
 
 // fakeStore is an in-memory Store for testing the service in isolation.
 type fakeStore struct {
-	byID  map[string]*domain.Task
-	byKey map[string]*domain.Task
-	sched map[string]*domain.Schedule
-	seq   int
+	byID    map[string]*domain.Task
+	byKey   map[string]*domain.Task
+	sched   map[string]*domain.Schedule
+	dead    map[string]*domain.DeadLetter
+	seq     int
+	replays []string
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{byID: map[string]*domain.Task{}, byKey: map[string]*domain.Task{}, sched: map[string]*domain.Schedule{}}
+	return &fakeStore{byID: map[string]*domain.Task{}, byKey: map[string]*domain.Task{}, sched: map[string]*domain.Schedule{}, dead: map[string]*domain.DeadLetter{}}
 }
 
 func (f *fakeStore) InsertTask(_ context.Context, t *domain.Task) error {
@@ -72,6 +74,41 @@ func (f *fakeStore) InsertSchedule(_ context.Context, s *domain.Schedule) error 
 	s.ID = "sched-" + itoa(f.seq)
 	f.sched[s.Name] = s
 	return nil
+}
+
+func (f *fakeStore) ListDeadLetters(_ context.Context, limit, offset int, _ bool) ([]domain.DeadLetter, error) {
+	out := make([]domain.DeadLetter, 0, len(f.dead))
+	for _, d := range f.dead {
+		out = append(out, *d)
+	}
+	if offset < len(out) {
+		out = out[offset:]
+	} else {
+		out = nil
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeStore) GetDeadLetter(_ context.Context, id string) (*domain.DeadLetter, error) {
+	if d, ok := f.dead[id]; ok {
+		return d, nil
+	}
+	return nil, store.ErrNotFound
+}
+
+func (f *fakeStore) ReplayDeadLetter(_ context.Context, id string) (*domain.Task, error) {
+	d, ok := f.dead[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	if d.ReplayedAt != nil {
+		return nil, store.ErrConflict
+	}
+	f.replays = append(f.replays, id)
+	return &domain.Task{ID: "task-replayed", State: domain.TaskQueued}, nil
 }
 
 func itoa(i int) string { return strconv.Itoa(i) }
@@ -219,6 +256,40 @@ func TestMaxRetriesOverride(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func TestListDeadLettersClampsLimit(t *testing.T) {
+	fs := newFakeStore()
+	for i := 0; i < 5; i++ {
+		id := "dl-" + itoa(i)
+		fs.dead[id] = &domain.DeadLetter{ID: id, TaskName: "x"}
+	}
+	svc := newService(fs)
+	// limit 0 → default; just ensure it returns without error and respects paging
+	got, err := svc.ListDeadLetters(context.Background(), 0, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 5 {
+		t.Errorf("expected 5 dead letters, got %d", len(got))
+	}
+}
+
+func TestReplayDeadLetter(t *testing.T) {
+	fs := newFakeStore()
+	fs.dead["dl-1"] = &domain.DeadLetter{ID: "dl-1", TaskName: "x"}
+	svc := newService(fs)
+	task, err := svc.ReplayDeadLetter(context.Background(), "dl-1")
+	if err != nil || task.State != domain.TaskQueued {
+		t.Fatalf("replay: task=%+v err=%v", task, err)
+	}
+	if len(fs.replays) != 1 {
+		t.Errorf("expected 1 replay call, got %d", len(fs.replays))
+	}
+	// missing → not found
+	if _, err := svc.ReplayDeadLetter(context.Background(), "nope"); err != store.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
 
 func asValidation(err error, target **service.ValidationError) bool {
 	if ve, ok := err.(*service.ValidationError); ok {
