@@ -16,6 +16,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/backoff"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/metrics"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
@@ -65,6 +66,8 @@ func (r *Reaper) tick(ctx context.Context) {
 			r.logger.Error("lease reap failed", "error", err)
 		}
 	} else if requeued > 0 || dead > 0 {
+		metrics.LeasesReaped.WithLabelValues("requeued").Add(float64(requeued))
+		metrics.LeasesReaped.WithLabelValues("dead").Add(float64(dead))
 		r.logger.Info("reaped expired leases", "requeued", requeued, "dead", dead)
 	}
 
@@ -73,6 +76,7 @@ func (r *Reaper) tick(ctx context.Context) {
 			r.logger.Error("schedule firing failed", "error", err)
 		}
 	} else if fired > 0 {
+		metrics.SchedulesFired.Add(float64(fired))
 		r.logger.Info("fired due schedules", "count", fired)
 	}
 
@@ -81,6 +85,7 @@ func (r *Reaper) tick(ctx context.Context) {
 			r.logger.Error("stale-worker scan failed", "error", err)
 		}
 	} else if marked > 0 {
+		metrics.WorkersMarkedDead.Add(float64(marked))
 		r.logger.Info("marked stale workers dead", "count", marked)
 	}
 }

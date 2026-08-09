@@ -16,6 +16,7 @@ import (
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/config"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/domain"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/message"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/metrics"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
@@ -79,6 +80,7 @@ func (d *Dispatcher) tick(ctx context.Context) error {
 		return err
 	}
 	if len(claimed) > 0 {
+		metrics.TasksDispatched.Add(float64(len(claimed)))
 		d.logger.Info("dispatched tasks", "count", len(claimed))
 	}
 	return nil

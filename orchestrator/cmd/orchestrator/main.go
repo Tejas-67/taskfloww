@@ -26,6 +26,7 @@ import (
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/config"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/consumer"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/dispatcher"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/metrics"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/reaper"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/relay"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/service"
@@ -92,6 +93,9 @@ func main() {
 
 	svc := service.New(st, cfg)
 	router := api.NewRouter(svc, logger)
+	if cfg.Metrics.Enabled {
+		router.Handle(cfg.Metrics.Path, metrics.Handler())
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Server.HTTPAddr,
@@ -106,12 +110,14 @@ func main() {
 	cons := consumer.New(st, backoff.New(cfg.Retry.Backoff), cfg.Heartbeat.LeaseTTL(), logger)
 	reap := reaper.New(st, backoff.New(cfg.Retry.Backoff), cfg.Heartbeat.ReaperInterval(),
 		cfg.Scheduler.DispatchBatchSize, cfg.Heartbeat.LeaseTTL(), logger)
+	coll := metrics.NewCollector(st, cfg.Heartbeat.ReaperInterval(), logger)
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() { defer wg.Done(); disp.Run(ctx) }()
 	go func() { defer wg.Done(); rel.Run(ctx) }()
 	go func() { defer wg.Done(); cons.Run(ctx, ctrlDeliveries) }()
 	go func() { defer wg.Done(); reap.Run(ctx) }()
+	go func() { defer wg.Done(); coll.Run(ctx) }()
 
 	go func() {
 		logger.Info("orchestrator starting",

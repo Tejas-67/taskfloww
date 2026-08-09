@@ -24,6 +24,7 @@ RabbitMQ; the REST **submission API**; **dispatcher** (SKIP LOCKED → outbox), 
 | `internal/consumer` | applies worker results (idempotent) + heartbeats (lease renew, worker upsert) |
 | `internal/reaper` | self-healing scans: expired-lease re-queue, cron schedule firing, stale-worker marking |
 | `internal/backoff` | retry-delay policy (exponential/fixed + jitter) |
+| `internal/metrics` | Prometheus metrics + a Postgres-backed gauge collector; serves `/metrics` |
 | `internal/message` | wire contract for task/result/heartbeat messages (mirrored by the Python worker) |
 
 Coming next: Prometheus metrics (5), fault-tolerance test suite (6), docs (7) — see [`../docs/ROADMAP.md`](../docs/ROADMAP.md).

@@ -1,0 +1,91 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "TaskFloww Overview",
+  "uid": "taskfloww-overview",
+  "tags": ["taskfloww"],
+  "schemaVersion": 39,
+  "time": { "from": "now-30m", "to": "now" },
+  "refresh": "10s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Workers alive",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "taskfloww_orchestrator_workers_alive", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Queue depth (queued)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "taskfloww_orchestrator_tasks_active{state=\"queued\"}", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Outbox pending",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "taskfloww_orchestrator_outbox_pending", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Completed / min",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(taskfloww_orchestrator_task_results_total{state=\"completed\"}[1m])) * 60", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task throughput (dispatched vs results)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(taskfloww_orchestrator_tasks_dispatched_total[1m]))", "legendFormat": "dispatched", "refId": "A" },
+        { "expr": "sum(rate(taskfloww_orchestrator_task_results_total[1m])) by (state)", "legendFormat": "{{state}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active tasks by state",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "taskfloww_orchestrator_tasks_active", "legendFormat": "{{state}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reaper activity (per 5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(taskfloww_orchestrator_leases_reaped_total[5m])) by (outcome)", "legendFormat": "reaped {{outcome}}", "refId": "A" },
+        { "expr": "sum(rate(taskfloww_orchestrator_schedules_fired_total[5m]))", "legendFormat": "schedules fired", "refId": "B" },
+        { "expr": "sum(rate(taskfloww_orchestrator_workers_marked_dead_total[5m]))", "legendFormat": "workers dead", "refId": "C" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API request p95 latency (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(taskfloww_orchestrator_http_request_duration_seconds_bucket[5m])) by (le, route))", "legendFormat": "{{route}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker task throughput (per 1m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(taskfloww_worker_tasks_processed_total[1m])) by (status)", "legendFormat": "{{status}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker task duration p95 (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(taskfloww_worker_task_duration_seconds_bucket[5m])) by (le, task_name))", "legendFormat": "{{task_name}}", "refId": "A" } ]
+    }
+  ]
+}

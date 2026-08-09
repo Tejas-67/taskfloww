@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/domain"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/metrics"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
@@ -60,6 +61,7 @@ func (r *Relay) tick(ctx context.Context) error {
 	n, err := r.store.PublishOutbox(ctx, r.batch, func(m domain.OutboxMessage) error {
 		perr := r.pub.Publish(ctx, m.Exchange, m.RoutingKey, toAMQPPriority(m.Priority), m.Payload)
 		if perr != nil {
+			metrics.OutboxPublishFailures.Inc()
 			r.logger.Warn("outbox publish failed; will retry",
 				"outbox_id", m.ID, "exchange", m.Exchange, "routing_key", m.RoutingKey, "error", perr)
 		}
@@ -69,6 +71,7 @@ func (r *Relay) tick(ctx context.Context) error {
 		return err
 	}
 	if n > 0 {
+		metrics.OutboxPublished.Add(float64(n))
 		r.logger.Info("relayed outbox messages", "published", n)
 	}
 	return nil

@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/domain"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/metrics"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/service"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
@@ -118,6 +119,11 @@ func (h *Handler) submitTask(w http.ResponseWriter, r *http.Request) {
 	if res.Existed {
 		status = http.StatusOK // idempotent replay of a prior submission
 	}
+	execType := "recurring"
+	if res.Task != nil {
+		execType = string(res.Task.ExecutionType)
+	}
+	metrics.TasksSubmitted.WithLabelValues(req.TaskName, execType).Inc()
 	writeJSON(w, status, submitResponseDTO{Kind: res.Kind, Task: res.Task, Schedule: res.Schedule})
 }
 
@@ -242,25 +248,33 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, e)
 }
 
-// requestLogger logs each request with structured fields.
+// requestLogger records per-request metrics and (if logger != nil) structured logs.
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if logger == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			start := time.Now()
 			next.ServeHTTP(ww, r)
-			logger.Info("http request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", ww.Status(),
-				"bytes", ww.BytesWritten(),
-				"duration_ms", time.Since(start).Milliseconds(),
-				"request_id", middleware.GetReqID(r.Context()),
-			)
+			dur := time.Since(start)
+
+			route := chi.RouteContext(r.Context()).RoutePattern()
+			if route == "" {
+				route = "other"
+			}
+			metrics.HTTPRequestDuration.
+				WithLabelValues(r.Method, route, strconv.Itoa(ww.Status())).
+				Observe(dur.Seconds())
+
+			if logger != nil {
+				logger.Info("http request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", ww.Status(),
+					"bytes", ww.BytesWritten(),
+					"duration_ms", dur.Milliseconds(),
+					"request_id", middleware.GetReqID(r.Context()),
+				)
+			}
 		})
 	}
 }

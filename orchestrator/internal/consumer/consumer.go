@@ -16,6 +16,7 @@ import (
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/backoff"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/domain"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/message"
+	"github.com/Tejas-67/taskfloww/orchestrator/internal/metrics"
 	"github.com/Tejas-67/taskfloww/orchestrator/internal/store"
 )
 
@@ -96,6 +97,7 @@ func (c *Consumer) handleResult(ctx context.Context, body []byte) error {
 		c.logger.Debug("duplicate/unknown result ignored", "execution_id", r.ExecutionID)
 		return nil
 	}
+	metrics.TaskResults.WithLabelValues(string(state)).Inc()
 	c.logger.Info("applied result",
 		"execution_id", r.ExecutionID, "task_id", r.TaskID,
 		"status", r.Status, "task_state", state)
@@ -110,6 +112,7 @@ func (c *Consumer) handleHeartbeat(ctx context.Context, body []byte) error {
 	if h.WorkerID == "" {
 		return fmt.Errorf("heartbeat missing worker_id")
 	}
+	metrics.HeartbeatsReceived.Inc()
 	if err := c.store.UpsertWorker(ctx, store.WorkerInput{
 		ID: h.WorkerID, Hostname: h.Hostname, PID: h.PID, Queues: h.Queues, Status: domain.WorkerAlive,
 	}); err != nil {

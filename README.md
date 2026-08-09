@@ -20,7 +20,8 @@ runs your function** → completed), and the **reaper** now makes it self-healin
 tasks are detected via missed heartbeats/expired leases and **re-queued to a healthy worker**;
 recurring **cron schedules** fire into task runs; stale workers are marked dead. Failures retry with
 backoff and, when exhausted, land in a **DLQ** that is queryable and **replayable** via the API.
-Next: Prometheus metrics, test hardening, docs — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+**Prometheus metrics** are exposed on both sides (`/metrics`) with a starter **Grafana** dashboard,
+alongside structured JSON logging. Next: test hardening, docs — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -73,7 +74,8 @@ docker compose up -d          # or: make -C .. up
 | PostgreSQL | `localhost:5432` | user/pass/db from `.env` |
 | RabbitMQ | `localhost:5672` | AMQP |
 | RabbitMQ UI | http://localhost:15672 | management console |
-| Prometheus | http://localhost:9090 | metrics (targets wired in later phases) |
+| Prometheus | http://localhost:9090 | scrapes the orchestrator + workers |
+| Grafana | http://localhost:3000 | starter **TaskFloww Overview** dashboard (admin/admin) |
 
 Tear down with `docker compose down` (add `-v` to also drop data volumes).
 
@@ -140,6 +142,19 @@ curl -X POST localhost:8080/v1/tasks -H 'Content-Type: application/json' \
 
 Failing handlers (e.g. the bundled `flaky`/`always_fails`) retry with backoff and land in the DLQ
 (`dead_letters` + the `tasks.dlq` queue) once `max_retries` is exhausted.
+
+## Observability
+
+Both components expose Prometheus metrics and emit structured JSON logs:
+
+- **Orchestrator** `/metrics` (on `server.http_addr`, e.g. `:8080`): task submitted/dispatched/result
+  counters, reaper + outbox counters, API latency histogram, and gauges (active tasks by state,
+  workers alive, outbox backlog).
+- **Worker** `/metrics` (on `metrics.worker_port`, e.g. `:9100`): tasks processed by status,
+  in-flight gauge, handler-duration histogram, heartbeats sent.
+
+`make up` includes **Prometheus** (scrapes both) and **Grafana** (http://localhost:3000, admin/admin)
+with a provisioned **TaskFloww Overview** dashboard.
 
 ## Building the components
 

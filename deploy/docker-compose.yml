@@ -66,10 +66,28 @@ services:
       - --storage.tsdb.path=/prometheus
     networks: [taskfloww]
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: taskfloww-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [prometheus]
+    networks: [taskfloww]
+
 volumes:
   pgdata:
   rabbitmqdata:
   promdata:
+  grafanadata:
 
 networks:
   taskfloww:

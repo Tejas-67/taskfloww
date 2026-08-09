@@ -56,7 +56,14 @@ Requires a running RabbitMQ (see `../deploy`). Set `TASKFLOWW_WORKER_ID` to pin 
 | `registry.py` | task registry — imports `module:function` handlers; `@task` decorator |
 | `messages.py` | wire contract (mirrors `orchestrator/internal/message`) |
 | `worker.py` | consume loop, thread-pool execution, heartbeats, dedupe, graceful shutdown |
+| `metrics.py` | Prometheus metrics (`prometheus_client`) — tasks processed, in-flight gauge, duration histogram, duplicates, heartbeats |
 | `examples/tasks.py` | example handlers (`send_email`, `generate_report`, `always_fails`) |
+
+## Metrics
+
+The worker exposes Prometheus metrics at `http://<host>:<metrics.worker_port>/metrics`
+(default `9100`). Series are namespaced `taskfloww_worker_*` (e.g. `tasks_processed_total`,
+`tasks_in_flight`, `task_duration_seconds`, `duplicate_deliveries_total`, `heartbeats_sent_total`).
 
 ## Test
 

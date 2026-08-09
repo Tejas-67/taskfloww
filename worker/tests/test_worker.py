@@ -58,6 +58,12 @@ class _FakePool:
 
     def submit(self, fn, *args):
         self.submitted.append(args)
+        return _FakeFuture()
+
+
+class _FakeFuture:
+    def add_done_callback(self, fn):
+        pass
 
 
 def test_resolve_queues(tmp_path):

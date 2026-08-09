@@ -12,12 +12,13 @@ license = { text = "MIT" }
 authors = [{ name = "Tejas-67" }]
 keywords = ["task-queue", "scheduler", "rabbitmq", "workflow", "distributed"]
 
-# Phase 2/4: config + broker dependencies.
-# Later phases add: structlog (logging), prometheus-client (metrics).
+# Phase 2/4/5: config + broker + metrics dependencies.
+# Later phases add: structlog (structured logging).
 dependencies = [
   "pydantic>=2",
   "pyyaml>=6",
   "pika>=1.3",
+  "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

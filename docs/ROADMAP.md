@@ -61,18 +61,26 @@ graceful shutdown.
 **Deliverable:** `worker.run(config)` executes a registered function end-to-end.
 **Depends on:** Phases 2, 3b
 
-## Phase 5 — Observability  `[ ]`  (`phase5-observability`)
+## Phase 5 — Observability  `[x]`  (`phase5-observability`)
 Go `slog`(JSON)+`client_golang`; Python `structlog`+`prometheus_client`; `/metrics` endpoints.
 Metrics: queue depth, worker count, success/failure/retry counters, latency histograms.
 **Deliverable:** Prometheus scrapes both; a starter dashboard.
 **Depends on:** Phases 3b, 4
 
-## Phase 6 — Fault-tolerance testing  `[ ]`  (`phase6-testing`)
+## Phase 6 — Fault-tolerance testing  `[x]`  (`phase6-testing`)  ✅ implemented (uncommitted)
 Unit (state machine, backoff, cron), integration (submit→dispatch→execute→complete), chaos (kill
 worker mid-task → re-queue), idempotency (duplicate delivery), DLQ overflow, multi-orchestrator
 no-double-dispatch.
 **Deliverable:** green test suite proving the guarantees.
 **Depends on:** Phases 3d, 3e, 4
+**Done:** added `orchestrator/internal/store/concurrency_integration_test.go` — multi-instance
+no-double-dispatch (K contending claimers), no-double-publish (K relays), no-double-reap (K reapers),
+all with per-task ledger assertions and run under `-race`. Added `worker/tests/test_faults.py` —
+handler-failure → *failed* Result still acked (orchestrator owns retries), success path, unknown
+task, and redelivery-after-completion idempotency. Sealed with a **live crash-recovery E2E**:
+SIGKILLed a worker mid-`slow`-task → reaper re-queued via expired lease → replacement worker
+completed it (ledger: attempt failed "lease expired (worker lost)" → later attempt succeeded).
+Full suites green: Go units + 13 store integration tests (clean schema) + 29 Python tests.
 
 ## Phase 7 — Docs & examples  `[ ]`  (`phase7-docs`)
 README + architecture doc + example task functions + example config + quickstart (compose up +

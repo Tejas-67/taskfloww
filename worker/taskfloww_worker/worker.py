@@ -18,11 +18,12 @@ import logging
 import os
 import socket
 import threading
+import time
 from typing import Optional
 
 import pika
 
-from taskfloww_worker import messages
+from taskfloww_worker import messages, metrics
 from taskfloww_worker.config import Config
 from taskfloww_worker.registry import Registry
 
@@ -83,6 +84,10 @@ class Worker:
         for q in self._queues:
             self._ch.basic_consume(queue=q, on_message_callback=self._on_message, auto_ack=False)
         self._start_heartbeat()
+
+        if self.cfg.metrics.enabled:
+            metrics.start_metrics_server(self.cfg.metrics.worker_port)
+            log.info("metrics server listening on :%d", self.cfg.metrics.worker_port)
 
         log.info(
             "worker %s started; tasks=%s queues=%s prefetch=%d",
@@ -145,11 +150,20 @@ class Worker:
         with self._lock:
             if msg.execution_id in self._processed or msg.execution_id in self._in_flight:
                 log.info("duplicate delivery execution_id=%s ignored", msg.execution_id)
+                metrics.DUPLICATE_DELIVERIES.inc()
                 ch.basic_ack(method.delivery_tag)
                 return
             self._in_flight[msg.execution_id] = {"task_id": msg.task_id, "delivery_tag": method.delivery_tag}
+        metrics.TASKS_IN_FLIGHT.inc()
 
-        self._pool.submit(self._execute, msg, method.delivery_tag)
+        fut = self._pool.submit(self._execute, msg, method.delivery_tag)
+        fut.add_done_callback(self._on_execute_done)
+
+    def _on_execute_done(self, fut: concurrent.futures.Future) -> None:
+        # Surface unexpected exceptions from the pool (otherwise silently swallowed).
+        exc = fut.exception()
+        if exc is not None:
+            log.error("worker execution task crashed: %r", exc)
 
     def _execute(self, msg: messages.TaskMessage, delivery_tag: int) -> None:
         fn = self.registry.get(msg.task_name)
@@ -157,11 +171,17 @@ class Worker:
         if fn is None:
             success, error = False, f"no handler registered for task {msg.task_name!r}"
         else:
+            start = time.monotonic()
             try:
                 result = fn(msg.payload)
             except Exception as e:  # user handler failed
                 success, error = False, f"{type(e).__name__}: {e}"
                 log.exception("task %s (execution %s) failed", msg.task_name, msg.execution_id)
+            finally:
+                metrics.TASK_DURATION.labels(task_name=msg.task_name).observe(time.monotonic() - start)
+        metrics.TASKS_PROCESSED.labels(
+            task_name=msg.task_name, status="succeeded" if success else "failed"
+        ).inc()
         # Marshal result publish + ack back onto the IO thread.
         self._conn.add_callback_threadsafe(
             functools.partial(self._finish, msg, delivery_tag, success, result, error)
@@ -188,6 +208,7 @@ class Worker:
                 self._processed[msg.execution_id] = True
                 while len(self._processed) > _PROCESSED_MAX:
                     self._processed.popitem(last=False)
+            metrics.TASKS_IN_FLIGHT.dec()
         log.info("finished execution=%s task=%s success=%s", msg.execution_id, msg.task_name, success)
 
     # -- heartbeats ---------------------------------------------------------
@@ -221,5 +242,6 @@ class Worker:
                 body=body,
                 properties=pika.BasicProperties(content_type="application/json", delivery_mode=2),
             )
+            metrics.HEARTBEATS_SENT.inc()
         except Exception as e:  # pragma: no cover
             log.debug("heartbeat publish failed: %s", e)

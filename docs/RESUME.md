@@ -3,19 +3,20 @@
 Single source of truth for **where we are** and **what to do next**. Read this first when
 returning to the project.
 
-_Last updated: 2026-07-29 (planning session)._
+_Last updated: 2026-08-09 (Phase 6 — fault-tolerance tests)._
 
 ---
 
 ## TL;DR
 
-We finished **discovery + planning** and shipped **Phase 0 → 3e**: bootstrap, schema, config,
-submission API, dispatcher+relay, result/heartbeat consumer, Python worker SDK, reaper, and now the
-**DLQ introspection + replay** (list/inspect dead tasks, replay them back into `queued`). The
-system is **self-healing end-to-end** with an operable DLQ. Next = **Phase 5 (Prometheus metrics)**,
-then 6 (fault-tolerance test suite), 7 (docs + quickstart).
+We finished **discovery + planning** and shipped **Phase 0 → 6**: bootstrap, schema, config,
+submission API, dispatcher+relay, result/heartbeat consumer, Python worker SDK, reaper, DLQ
+replay, observability (Prometheus + Grafana), and now a **fault-tolerance test suite** —
+multi-instance concurrency (no double dispatch/publish/reap), worker failure/idempotency tests, and
+a **live crash-recovery E2E** (kill a worker mid-task → another finishes it). Next = **Phase 7
+(docs + quickstart)** — the last one.
 
-> ⚠️ Phase 3e is implemented and validated but **not yet committed** — the user commits manually.
+> ⚠️ Phase 6 is implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -75,6 +76,25 @@ then 6 (fault-tolerance test suite), 7 (docs + quickstart).
   run's execution ledger on replay). Validated: store integration (list/get/replay/conflict) + api
   unit tests, plus a **live DLQ E2E** (reaper drove a task to `dead` → list/inspect/replay via REST →
   task re-dispatched cleanly with a fresh execution ledger, second replay → 409).
+- ✅ **Phase 5 implemented (uncommitted)** — observability. Go `internal/metrics` (promauto counters/
+  gauges/histogram + a Postgres-backed gauge collector) instrumented across api/dispatcher/consumer/
+  reaper/relay; `/metrics` served on the orchestrator. Python `taskfloww_worker/metrics.py`
+  (prometheus_client) instrumented in the worker; `/metrics` on `metrics.worker_port`. Enabled the
+  Prometheus scrape jobs + added a provisioned **Grafana** dashboard (`deploy/grafana`). Fixed a real
+  bug found live: worker `_execute` used `time` without importing it → silent pool `NameError` left
+  tasks stuck in-flight; added `import time` + a future-exception guard. Metrics unit tests (Go +
+  Python) + a **live scrape E2E** confirmed both endpoints reflect real activity.
+- ✅ **Phase 6 implemented (uncommitted)** — fault-tolerance test suite. Added
+  `orchestrator/internal/store/concurrency_integration_test.go` proving the stateless-orchestrator
+  guarantee under real contention: **no-double-dispatch** (K claimers), **no-double-publish** (K
+  relays), **no-double-reap** (K reapers), each keyed on per-task ledger assertions and run under
+  `-race`. Added `worker/tests/test_faults.py` — handler-failure publishes a *failed* Result and
+  still acks (orchestrator owns retries), success path, unknown-task, and redelivery-after-completion
+  idempotency (dedupe via `_processed`, not just in-flight). Sealed with a **live crash-recovery
+  E2E**: SIGKILLed a worker mid-`slow`-task → reaper detected the expired lease → re-queued → a
+  replacement worker completed it (ledger showed the crashed attempt `failed`/"lease expired (worker
+  lost)" then a later attempt `succeeded`). Full suites green: Go units + 13 store integration tests
+  (clean schema) + 29 Python tests.
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -85,11 +105,29 @@ then 6 (fault-tolerance test suite), 7 (docs + quickstart).
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-**Phase 3e done** (pending your manual commit). Next: **Phase 5 — observability** (Prometheus
-`/metrics` on the orchestrator via `client_golang` and on the worker via `prometheus_client`;
-metrics: queue depth, worker count, task success/failure/retry counters, dispatch/execute latency
-histograms; wire the scrape jobs already stubbed in `deploy/prometheus/prometheus.yml`). Then 6
-(fault-tolerance test suite / hardening) and 7 (docs + quickstart).
+**Phase 6 done** (pending your manual commit). Next: **Phase 7 — docs & examples** (the last phase):
+consolidate/polish README + architecture doc, example task functions + example config, a
+compose-up quickstart (submit a task in <10 min without editing the engine), and an API reference.
+Most of this content already exists across `docs/` — Phase 7 is mainly consolidation and a
+top-to-bottom quickstart pass.
+
+### Fault-tolerance test notes (Phase 6)
+- Concurrency tests fire K goroutines through a start barrier (simulating K instances hammering the
+  same rows) and assert **per-task** ledger integrity keyed on the test's own ids — so they're
+  independent of other rows in the shared DB. Run with `-race`.
+- Live crash-recovery E2E requires **consistent timings**: worker `heartbeat.interval_seconds` MUST
+  be < orchestrator `lease_ttl_seconds` (renewal happens on each heartbeat via `RenewLeases`). A
+  mismatch (e.g. lease 6s but worker interval 10s) makes the reaper reap live tasks — this is a
+  config error, not a bug (the config comment already warns "lease_ttl must exceed interval + lag").
+  For the E2E use e.g. interval=2s / lease=8s / reaper=2s, and set the interval on BOTH sides.
+
+### Metrics notes (Phase 5)
+- Go metrics use `promauto` on the default registry (package-level vars in `internal/metrics`), so
+  components just call `metrics.X.Inc()`; `/metrics` = `promhttp.Handler()`. Gauges (active tasks by
+  state, workers alive, outbox pending) are sampled from Postgres by a `Collector` loop.
+- Worker metrics use `prometheus_client`; `start_http_server(worker_port)` exposes them.
+- **Integration-test note carried over:** run store integration tests against a clean schema
+  (`goose reset && goose up`) — greedy `ClaimDueTasks(100)` + shared DB causes false failures otherwise.
 
 ### DLQ notes (Phase 3e)
 - Two DLQ layers: the **`dead_letters` table** is the authoritative, queryable/replayable DLQ
@@ -171,6 +209,21 @@ throwaway local Postgres + RabbitMQ nodes (initdb/goose/curl + rabbitmq-server).
 3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 3a).
 
 ## Progress log
+- **2026-08-09 (Phase 6)** — Fault-tolerance test suite. Added multi-instance concurrency
+  integration tests (`concurrency_integration_test.go`): no-double-dispatch / -publish / -reap under
+  a start-barrier of K goroutines, per-task ledger assertions, run under `-race`. Added
+  `worker/tests/test_faults.py` (handler-failure→failed-result-acked, success, unknown-task,
+  redelivery-after-completion idempotency). Live crash-recovery E2E: SIGKILL worker mid-`slow` →
+  reaper re-queued via expired lease → replacement worker completed (attempt failed "lease expired
+  (worker lost)" → later attempt succeeded). Suites green: Go units + 13 integration + 29 Python.
+  Caught a self-inflicted timing pitfall (worker interval must be < lease TTL) — documented. **Not
+  committed**.
+- **2026-08-08 (Phase 5)** — Observability. Go `internal/metrics` (promauto counters/gauges/histogram
+  + Postgres gauge collector) instrumented across api/dispatcher/consumer/reaper/relay; `/metrics`
+  served. Python `taskfloww_worker/metrics.py` (prometheus_client) in the worker; `/metrics` on
+  `worker_port`. Enabled Prometheus scrape jobs + provisioned Grafana dashboard (`deploy/grafana`).
+  Fixed a live-found bug (worker `_execute` missing `import time` → silent pool crash, tasks stuck) +
+  a future-exception guard. Unit tests (Go+Python) + live scrape E2E green. **Not committed**.
 - **2026-08-08 (Phase 3e)** — DLQ introspection + replay. Store `deadletters.go`
   (`ListDeadLetters`/`GetDeadLetter`/`ReplayDeadLetter`), service + API routes under
   `/v1/dead-letters`. Fixed a real replay bug (clear prior executions on replay to avoid
