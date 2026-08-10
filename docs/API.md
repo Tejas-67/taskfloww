@@ -1,4 +1,4 @@
-# REST API (Phase 3a)
+# REST API
 
 The orchestrator exposes a REST API (chi) for task submission and lifecycle, behind the
 transport-agnostic `SchedulerService` interface (a gRPC layer can wrap the same service later —
@@ -41,7 +41,7 @@ All responses are JSON. Errors use `{"error":{"code","message"}}`.
 { "kind": "task", "task": { "id": "…", "state": "queued", "next_run_at": "…", … } }
 ```
 Recurring submissions create a **schedule** (a cron definition; each firing later materializes a
-task run — Phase 3d):
+task run):
 ```json
 { "kind": "schedule", "schedule": { "id": "…", "cron_expr": "*/5 * * * *", "next_fire_at": "…", "enabled": true } }
 ```
@@ -107,8 +107,10 @@ curl -X POST localhost:8080/v1/dead-letters/<uuid>/replay
 ## Notes
 
 - **Idempotency:** submission dedups on `id` (`idempotency_key` UNIQUE). At-least-once *execution*
-  idempotency (duplicate deliveries) is handled later via the `task_executions` ledger.
-- The API only **persists** tasks (state `queued`). Dispatching to RabbitMQ is Phase 3b; execution
-  is Phase 4.
+  idempotency (duplicate deliveries) is handled via the `task_executions` ledger — a redelivered
+  execution is a no-op.
+- A submitted task flows `queued → dispatching → running → completed` automatically: the dispatcher
+  claims it (`SKIP LOCKED`), the outbox relay publishes it to RabbitMQ, a worker runs the mapped
+  function, and the result consumer writes terminal state.
 - Requires PostgreSQL (`make up` + `make migrate-up`); the orchestrator fails fast if the DB is
   unreachable.

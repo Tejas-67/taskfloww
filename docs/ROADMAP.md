@@ -82,11 +82,20 @@ SIGKILLed a worker mid-`slow`-task → reaper re-queued via expired lease → re
 completed it (ledger: attempt failed "lease expired (worker lost)" → later attempt succeeded).
 Full suites green: Go units + 13 store integration tests (clean schema) + 29 Python tests.
 
-## Phase 7 — Docs & examples  `[ ]`  (`phase7-docs`)
+## Phase 7 — Docs & examples  `[x]`  (`phase7-docs`)  ✅ implemented (uncommitted)
 README + architecture doc + example task functions + example config + quickstart (compose up +
 submit a task) + API reference.
 **Deliverable:** a new developer onboards a task in <10 minutes without editing the engine.
 **Depends on:** Phase 6
+**Done:** added **[`docs/QUICKSTART.md`](QUICKSTART.md)** — clone → completed task in <10 min
+(Docker or local infra), an "add your own task" 3-step walkthrough, and a live crash-recovery demo.
+Reworked the top-level `README.md` (status → v1 feature-complete, a prominent "Add your own task"
+payoff, quickstart pointer). De-staled `docs/API.md` (dropped phase-relative "later" notes now that
+the full flow is implemented). Architecture, data flow, and failure scenarios already live in
+[`PLAN.md`](PLAN.md); example handlers in `worker/examples/tasks.py`; config reference in
+[`CONFIG.md`](CONFIG.md).
+
+**🎉 All phases (0–7) implemented — v1 core complete.**
 
 ---
 

@@ -9,14 +9,13 @@ _Last updated: 2026-08-09 (Phase 6 — fault-tolerance tests)._
 
 ## TL;DR
 
-We finished **discovery + planning** and shipped **Phase 0 → 6**: bootstrap, schema, config,
-submission API, dispatcher+relay, result/heartbeat consumer, Python worker SDK, reaper, DLQ
-replay, observability (Prometheus + Grafana), and now a **fault-tolerance test suite** —
-multi-instance concurrency (no double dispatch/publish/reap), worker failure/idempotency tests, and
-a **live crash-recovery E2E** (kill a worker mid-task → another finishes it). Next = **Phase 7
-(docs + quickstart)** — the last one.
+We finished **discovery + planning** and shipped **Phase 0 → 7 (all phases — v1 core complete)**:
+bootstrap, schema, config, submission API, dispatcher+relay, result/heartbeat consumer, Python
+worker SDK, reaper, DLQ replay, observability (Prometheus + Grafana), a fault-tolerance test suite,
+and now **docs & quickstart** ([`QUICKSTART.md`](QUICKSTART.md) — clone → completed task in <10 min +
+"add your own task" + a crash-recovery demo). Nothing left on the roadmap.
 
-> ⚠️ Phase 6 is implemented and validated but **not yet committed** — the user commits manually.
+> ⚠️ Phases 5–7 are implemented and validated but **not yet committed** — the user commits manually.
 
 ---
 
@@ -95,6 +94,11 @@ a **live crash-recovery E2E** (kill a worker mid-task → another finishes it). 
   replacement worker completed it (ledger showed the crashed attempt `failed`/"lease expired (worker
   lost)" then a later attempt `succeeded`). Full suites green: Go units + 13 store integration tests
   (clean schema) + 29 Python tests.
+- ✅ **Phase 7 implemented (uncommitted)** — docs & quickstart. Added
+  [`docs/QUICKSTART.md`](QUICKSTART.md) (clone → completed task in <10 min via Docker or local infra,
+  an "add your own task" 3-step walkthrough, and a live crash-recovery demo). Reworked `README.md`
+  (status → v1 feature-complete, prominent "Add your own task" payoff, quickstart pointer). De-staled
+  `docs/API.md` (removed phase-relative "later" notes). No engine code changed — docs only.
 
 ## Locked decisions
 - **A — Hybrid scheduling:** Postgres source of truth (SKIP LOCKED poller + lease reaper + cron +
@@ -105,11 +109,11 @@ a **live crash-recovery E2E** (kill a worker mid-task → another finishes it). 
 - **E — Languages:** Go orchestrator + Python workers (Java considered, rejected — see ADR/decisions).
 
 ## ⬅️ Next step
-**Phase 6 done** (pending your manual commit). Next: **Phase 7 — docs & examples** (the last phase):
-consolidate/polish README + architecture doc, example task functions + example config, a
-compose-up quickstart (submit a task in <10 min without editing the engine), and an API reference.
-Most of this content already exists across `docs/` — Phase 7 is mainly consolidation and a
-top-to-bottom quickstart pass.
+**All roadmap phases (0–7) are done — v1 core is complete.** 🎉 The only outstanding action is your
+**manual commits** for the uncommitted work (Phases 5, 6, 7). After that, optional future work (all
+explicitly out of v1 scope — see `PLAN.md §9`): DAG/multi-step workflows, a UI dashboard,
+multi-tenant auth, a gRPC surface (the `SchedulerService` interface already anticipates it), and a
+CI pipeline (GitHub Actions running the Go + Python suites + the tagged integration tests).
 
 ### Fault-tolerance test notes (Phase 6)
 - Concurrency tests fire K goroutines through a start barrier (simulating K instances hammering the
@@ -206,9 +210,14 @@ throwaway local Postgres + RabbitMQ nodes (initdb/goose/curl + rabbitmq-server).
 1. Open `docs/RESUME.md` (this file), then `docs/ROADMAP.md`.
 2. Re-hydrate tracking if needed (the session DB may not carry over):
    the phase list in ROADMAP.md is the canonical backlog.
-3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`) and start the first `[ ]` phase (Phase 3a).
+3. Pull the repo (`git@github.com:Tejas-67/taskfloww.git`). All roadmap phases (0–7) are
+   implemented; the pending action is committing the uncommitted work (Phases 5–7). See "Next step".
 
 ## Progress log
+- **2026-08-09 (Phase 7)** — Docs & quickstart (final phase). Added `docs/QUICKSTART.md` (clone →
+  completed task in <10 min, "add your own task" walkthrough, crash-recovery demo); reworked
+  `README.md` (v1 feature-complete status, "Add your own task" payoff, quickstart pointer, layout);
+  de-staled `docs/API.md`. Docs only — no engine changes. **All phases 0–7 complete.** Not committed.
 - **2026-08-09 (Phase 6)** — Fault-tolerance test suite. Added multi-instance concurrency
   integration tests (`concurrency_integration_test.go`): no-double-dispatch / -publish / -reap under
   a start-barrier of K goroutines, per-task ledger assertions, run under `-race`. Added

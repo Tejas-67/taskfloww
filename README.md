@@ -3,7 +3,7 @@
 > A **stateless**, **config-driven** distributed **Task Scheduler & Workflow Engine**.
 > Go orchestrator · Python workers · PostgreSQL (source of truth) · RabbitMQ (transport + DLQ).
 
-[![status](https://img.shields.io/badge/status-M1%20walking%20skeleton-brightgreen)]()
+[![status](https://img.shields.io/badge/status-v1%20feature--complete-brightgreen)]()
 [![license](https://img.shields.io/badge/license-MIT-blue)]()
 
 TaskFloww lets a developer **write a Python function, map it to a task name in a YAML file, and
@@ -11,17 +11,22 @@ submit work** — the engine handles scheduling (immediate / delayed / cron), at
 execution, retries with exponential backoff, heartbeat-based crash recovery, a Dead Letter
 Queue, and Prometheus/JSON observability — **without editing the core engine**.
 
+> **New here?** → Go from clone to a completed task in <10 minutes with
+> **[`docs/QUICKSTART.md`](docs/QUICKSTART.md)**.
+
 ---
 
 ## Status
 
-✅ **Milestone M1 + fault tolerance.** The full loop runs end-to-end (submit → dispatch → **worker
-runs your function** → completed), and the **reaper** now makes it self-healing: a crashed worker's
-tasks are detected via missed heartbeats/expired leases and **re-queued to a healthy worker**;
-recurring **cron schedules** fire into task runs; stale workers are marked dead. Failures retry with
-backoff and, when exhausted, land in a **DLQ** that is queryable and **replayable** via the API.
-**Prometheus metrics** are exposed on both sides (`/metrics`) with a starter **Grafana** dashboard,
-alongside structured JSON logging. Next: test hardening, docs — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+✅ **v1 core complete** — all planned phases (0–7) are implemented. The full loop runs end-to-end
+(submit → dispatch → **worker runs your function** → completed); the **reaper** makes it
+self-healing (crashed workers detected via missed heartbeats/expired leases and **re-queued to a
+healthy worker**); recurring **cron schedules** fire into task runs; failures retry with backoff and,
+when exhausted, land in a **DLQ** that is queryable and **replayable** via the API. **Prometheus
+metrics** are exposed on both sides (`/metrics`) with a starter **Grafana** dashboard, alongside
+structured JSON logging. Fault tolerance is proven by a **concurrency + crash-recovery test suite**
+(multi-instance no-double-dispatch, idempotent redelivery, live worker-crash recovery). See the
+phase history in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -56,7 +61,7 @@ taskfloww/
 ├── migrations/       # SQL schema migrations — goose (Phase 1)
 ├── config/           # plug-and-play example config (config.example.yaml)
 ├── deploy/           # docker-compose (Postgres + RabbitMQ + Prometheus), prometheus/
-└── docs/             # PLAN, DECISIONS, ROADMAP, RESUME, SCHEMA
+└── docs/             # QUICKSTART, PLAN, DECISIONS, ROADMAP, SCHEMA, CONFIG, API, RESUME
 ```
 
 ## Quickstart (local infra)
@@ -108,6 +113,30 @@ and the full reference in [`docs/CONFIG.md`](docs/CONFIG.md).
 python -m taskfloww_worker -c config/config.example.yaml    # Python
 ```
 
+## Add your own task (plug-and-play)
+
+The whole point: onboard work by **writing a function and mapping it** — no engine edits.
+
+```python
+# 1. a plain handler: payload in, JSON-serializable value out (worker/examples/tasks.py)
+def resize_image(payload: dict) -> dict:
+    return {"resized_to": payload["width"]}
+```
+```yaml
+# 2. map it under tasks: in the config (handler = importable module:function)
+tasks:
+  - name: resize_image
+    handler: examples.tasks:resize_image
+    queue: tasks.default
+```
+```bash
+# 3. restart the worker, then submit it
+curl -X POST localhost:8080/v1/tasks -H 'Content-Type: application/json' \
+  -d '{"task_name":"resize_image","payload":{"width":800}}'
+```
+
+Step-by-step (infra → submit → your own task → crash-recovery demo): [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+
 ## REST API
 
 Once Postgres is up and migrated, the orchestrator serves a task API (full reference:
@@ -125,7 +154,7 @@ curl -X POST localhost:8080/v1/tasks/<uuid>/cancel
 Supports `immediate` / `delayed` (`delay_seconds`|`run_at`) / `recurring` (`cron`); submissions are
 idempotent on `id`; unknown task names are rejected (only configured tasks are accepted).
 
-## Run the full loop (M1)
+## Run the full loop
 
 ```bash
 # 1. infra + schema
